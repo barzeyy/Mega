@@ -1,0 +1,2416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mega Ramp Training Facility — v9 dome roof test</title>
+<style>
+  html, body { margin:0; padding:0; overflow:hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; background:#9fc9e8; }
+  canvas { display:block; }
+  #info {
+    position: fixed; top: 14px; left: 14px;
+    background: rgba(15,18,26,0.78); color: #fff;
+    padding: 12px 14px; border-radius: 10px;
+    max-width: 320px; font-size: 12.5px; line-height: 1.5;
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255,255,255,0.09);
+    z-index: 5;
+  }
+  #info h1 { margin: 0 0 6px 0; font-size: 15px; letter-spacing: 0.2px; font-weight: 600; }
+  #info .tags { margin-top: 8px; }
+  #info .tag { display:inline-block; margin: 2px 3px 2px 0; padding: 2px 7px; border-radius: 4px; background: rgba(255,255,255,0.08); font-size: 11px; }
+  #info .tag b { color:#9fdcff; font-weight:500; }
+  #info .hint { margin-top: 8px; opacity: 0.75; font-size: 11px; }
+  #controls { position: fixed; bottom: 14px; left: 14px; display:flex; gap:6px; flex-wrap:wrap; z-index: 5; }
+  #controls button {
+    padding: 8px 12px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(15,18,26,0.72); color:#fff;
+    cursor:pointer; font-size:12px; font-family: inherit;
+    transition: background 0.15s;
+  }
+  #controls button:hover { background: rgba(40,50,75,0.85); }
+  #badge {
+    position: fixed; top: 14px; right: 14px; z-index: 5;
+    background: rgba(15,18,26,0.7); color: #fff;
+    padding: 6px 10px; border-radius: 6px; font-size: 11px;
+    border: 1px solid rgba(255,255,255,0.08);
+  }
+</style>
+</head>
+<body>
+<div id="info">
+  <h1>Mega Ramp Training Facility — v9 (spectator deck, raised)</h1>
+  <div>Wooden mezzanine at 19 ft — flush with the tops of the side-wall containers, reading as a continuation of their roofs. Runs from the back wall out to the middle string of lights. Compact 20 × 20 ft head-clearance hole cut at the drop-in. No support columns — the deck cantilevers off the side and back walls. Steel pipe rails around the hole and along the courtyard-facing front edge. Dome is hidden by default — toggle with <b>Show dome</b>.</div>
+  <div class="tags">
+    <span class="tag"><b>Container:</b> 40 ft HC</span>
+    <span class="tag"><b>Back wall:</b> 38 ft (4 tall)</span>
+    <span class="tag"><b>Total containers:</b> 16</span>
+    <span class="tag"><b>Kicker:</b> 18 ft × 14 ft H</span>
+    <span class="tag"><b>Ramp:</b> 14 ft wide</span>
+  </div>
+  <div class="hint">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
+</div>
+<div id="badge">v9 — SPECTATOR DECK at 19 ft · middle-string to back wall · no columns</div>
+<div id="controls">
+  <button id="btn-reset">Reset view</button>
+  <button id="btn-top">Top-down</button>
+  <button id="btn-side">Side view</button>
+  <button id="btn-rider">Rider POV</button>
+  <button id="btn-back">Behind facility</button>
+  <button id="btn-deck" style="background: rgba(110,70,30,0.9); border-color: rgba(255,255,255,0.35);">Hide deck</button>
+  <button id="btn-dome" style="background: rgba(80,40,120,0.85); border-color: rgba(255,255,255,0.35);">Show dome</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* =========================================================
+   MEGA RAMP TRAINING FACILITY — v8
+   1 unit = 1 foot.
+   Changes from v7:
+   - Drop-in deck moved from behind the back wall to the FRONT,
+     overhanging the courtyard. Stairs flipped so they top out
+     at the back wall top and you walk across onto the deck.
+   - Whole roll-in pushed forward by 8 ft to meet the new deck
+     front edge (still ~50° through the steep mid-section).
+   - Kicker replaced with a 14 ft tall × 18 ft long version for
+     realistic Nitro-scale takeoff reference.
+   - Glass sliding doors on every cut-open container opening.
+   - Garden-bed planter strips running down both sides of the
+     riding lane to visually separate it from the lounge zones.
+   - Fake-grass turf patches in the courtyard corners — the
+     whole thing still sits on the concrete slab.
+   - Back-corner chill zones: wall-mounted TVs on the back wall,
+     outdoor couches + coffee tables facing them.
+   ========================================================= */
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x9fc9e8);
+scene.fog = new THREE.Fog(0x9fc9e8, 400, 1200);
+
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.5, 2500);
+const DEFAULT_CAM = new THREE.Vector3(120, 80, 150);
+const DEFAULT_TARGET = new THREE.Vector3(0, 16, 10);
+camera.position.copy(DEFAULT_CAM);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputEncoding = THREE.sRGBEncoding;
+document.body.appendChild(renderer.domElement);
+
+/* ---------- Lights ---------- */
+const sun = new THREE.DirectionalLight(0xfff3e0, 1.05);
+sun.position.set(160, 280, 140);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+const shadowSize = 220;
+sun.shadow.camera.left = -shadowSize;
+sun.shadow.camera.right = shadowSize;
+sun.shadow.camera.top = shadowSize;
+sun.shadow.camera.bottom = -shadowSize;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 800;
+sun.shadow.bias = -0.0005;
+scene.add(sun);
+scene.add(new THREE.AmbientLight(0xffffff, 0.32));
+scene.add(new THREE.HemisphereLight(0xbfe0f5, 0x3a5d25, 0.45));
+
+/* ---------- Ground / pasture ---------- */
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(1600, 1600),
+  new THREE.MeshStandardMaterial({ color: 0x5f8b3c, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// grass patches
+for (let i = 0; i < 55; i++) {
+  const patch = new THREE.Mesh(
+    new THREE.CircleGeometry(6 + Math.random() * 22, 12),
+    new THREE.MeshStandardMaterial({
+      color: Math.random() > 0.5 ? 0x6da04a : 0x507a34,
+      roughness: 1
+    })
+  );
+  patch.rotation.x = -Math.PI / 2;
+  patch.position.set((Math.random() - 0.5) * 1000, 0.04, (Math.random() - 0.5) * 1000);
+  patch.receiveShadow = true;
+  scene.add(patch);
+}
+
+// concrete pad under the structure
+const pad = new THREE.Mesh(
+  new THREE.PlaneGeometry(110, 130),
+  new THREE.MeshStandardMaterial({ color: 0xc4c3bd, roughness: 0.9 })
+);
+pad.rotation.x = -Math.PI / 2;
+pad.position.set(0, 0.08, 0);
+pad.receiveShadow = true;
+scene.add(pad);
+
+// subtle concrete expansion joints (thin grooves)
+const jointMat = new THREE.MeshStandardMaterial({ color: 0x8f8e88, roughness: 1 });
+for (let i = -2; i <= 2; i++) {
+  const joint = new THREE.Mesh(new THREE.PlaneGeometry(110, 0.25), jointMat);
+  joint.rotation.x = -Math.PI / 2;
+  joint.position.set(0, 0.09, i * 25);
+  scene.add(joint);
+}
+for (let i = -1; i <= 1; i++) {
+  const joint = new THREE.Mesh(new THREE.PlaneGeometry(0.25, 130), jointMat);
+  joint.rotation.x = -Math.PI / 2;
+  joint.position.set(i * 30, 0.09, 0);
+  scene.add(joint);
+}
+
+/* ---------- Trees (perimeter) ---------- */
+function makeTree(x, z) {
+  const g = new THREE.Group();
+  const h = 8 + Math.random() * 6;
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.8, 1.2, h, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5a3a22, roughness: 1 })
+  );
+  trunk.position.y = h / 2;
+  trunk.castShadow = true;
+  const leaves = new THREE.Mesh(
+    new THREE.SphereGeometry(6 + Math.random() * 3, 12, 10),
+    new THREE.MeshStandardMaterial({
+      color: [0x3a6a2a, 0x4a7a2e, 0x2e6228][Math.floor(Math.random() * 3)],
+      roughness: 1
+    })
+  );
+  leaves.position.y = h + 3;
+  leaves.castShadow = true;
+  g.add(trunk);
+  g.add(leaves);
+  g.position.set(x, 0, z);
+  return g;
+}
+for (let i = 0; i < 32; i++) {
+  const a = Math.random() * Math.PI * 2;
+  const r = 215 + Math.random() * 180;
+  scene.add(makeTree(Math.cos(a) * r, Math.sin(a) * r));
+}
+
+/* ---------- Perimeter fence ---------- */
+function makeFence() {
+  const fg = new THREE.Group();
+  const size = 190;
+  const postMat = new THREE.MeshStandardMaterial({ color: 0x6a4a2a, roughness: 1 });
+  const railMat = new THREE.MeshStandardMaterial({ color: 0x8a6a3a, roughness: 1 });
+  const spacing = 11;
+  for (let v = -size; v <= size; v += spacing) {
+    [[-size, v], [size, v], [v, -size], [v, size]].forEach(([x, z]) => {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.8, 5, 0.8), postMat);
+      post.position.set(x, 2.5, z);
+      post.castShadow = true;
+      fg.add(post);
+    });
+  }
+  [1.5, 3.7].forEach(h => {
+    const long = size * 2;
+    [-size, size].forEach(z => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(long, 0.35, 0.35), railMat);
+      rail.position.set(0, h, z);
+      fg.add(rail);
+    });
+    [-size, size].forEach(x => {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.35, long), railMat);
+      rail.position.set(x, h, 0);
+      fg.add(rail);
+    });
+  });
+  return fg;
+}
+scene.add(makeFence());
+
+/* ---------- Shipping container factory ----------
+   40 ft High Cube (40ft HC) exterior dimensions:
+     Length: 40 ft, Width: 8 ft, Height: 9 ft 6 in (9.5 ft)
+   This is the most common container type for building construction
+   because of the extra 1 ft of headroom vs standard (8'6") containers.
+*/
+const CW = 40, CH = 9.5, CD = 8;
+const CONTAINER_COLORS = [
+  0xa8423a, 0x2c5a8a, 0x3a6e3a, 0xc47c2a,
+  0x7a7a7a, 0x8a3a6a, 0xb89a4a, 0x3a5a6a,
+  0xd4673a, 0x4a6a9a
+];
+
+function darken(hex, amt) {
+  const r = Math.max(0, ((hex >> 16) & 255) * (1 - amt)) | 0;
+  const g = Math.max(0, ((hex >> 8) & 255) * (1 - amt)) | 0;
+  const b = Math.max(0, (hex & 255) * (1 - amt)) | 0;
+  return (r << 16) | (g << 8) | b;
+}
+
+function makeContainer(color) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(CW, CH, CD),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.88, metalness: 0.14 })
+  );
+  body.castShadow = true;
+  body.receiveShadow = true;
+  group.add(body);
+
+  const ridgeMat = new THREE.MeshStandardMaterial({ color: darken(color, 0.18), roughness: 0.95 });
+  const ridgeCount = 24;
+  for (let i = 0; i < ridgeCount; i++) {
+    const rx = -CW / 2 + (i + 0.5) * (CW / ridgeCount);
+    [CD / 2 + 0.05, -CD / 2 - 0.05].forEach(rz => {
+      const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.14, CH * 0.86, 0.14), ridgeMat);
+      ridge.position.set(rx, 0, rz);
+      group.add(ridge);
+    });
+  }
+
+  const cornerMat = new THREE.MeshStandardMaterial({ color: 0x24252a, roughness: 0.9 });
+  [[-1, -1], [-1, 1], [1, -1], [1, 1]].forEach(([sx, sz]) => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, CH + 0.1, 0.7), cornerMat);
+    post.position.set(sx * (CW / 2 - 0.1), 0, sz * (CD / 2 - 0.1));
+    group.add(post);
+  });
+  [CH / 2 + 0.03, -CH / 2 - 0.03].forEach(yy => {
+    [CD / 2, -CD / 2].forEach(zz => {
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(CW + 0.15, 0.3, 0.3), cornerMat);
+      trim.position.set(0, yy, zz);
+      group.add(trim);
+    });
+    [CW / 2, -CW / 2].forEach(xx => {
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, CD + 0.15), cornerMat);
+      trim.position.set(xx, yy, 0);
+      group.add(trim);
+    });
+  });
+
+  return group;
+}
+
+/* Container with a wide opening cut into one long side (local +z face).
+   Used for bottom-row side / back containers so riders can see and walk
+   into the interior (bunks, kitchen, bathroom). */
+function makeOpenContainer(color, opts = {}) {
+  const openW = opts.openW != null ? opts.openW : 22;
+  const openH = opts.openH != null ? opts.openH : 7.5;
+  const openX = opts.openX != null ? opts.openX : 0; // offset along length
+  const openFace = opts.openFace || '+z';             // '+z' or '-z'
+
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.88, metalness: 0.14 });
+  const ridgeMat = new THREE.MeshStandardMaterial({ color: darken(color, 0.18), roughness: 0.95 });
+  const cornerMat = new THREE.MeshStandardMaterial({ color: 0x24252a, roughness: 0.9 });
+  const interiorMat = new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 1 });
+  const t = 0.18;
+
+  // ---- closed long wall (opposite of opening) ----
+  const closedZ = (openFace === '+z') ? -CD / 2 : CD / 2;
+  const closed = new THREE.Mesh(new THREE.BoxGeometry(CW, CH, t), mat);
+  closed.position.set(0, 0, closedZ);
+  closed.castShadow = true; closed.receiveShadow = true;
+  group.add(closed);
+
+  // ---- short end walls ----
+  for (const sx of [-1, 1]) {
+    const end = new THREE.Mesh(new THREE.BoxGeometry(t, CH, CD), mat);
+    end.position.set(sx * CW / 2, 0, 0);
+    end.castShadow = true; end.receiveShadow = true;
+    group.add(end);
+  }
+
+  // ---- roof ----
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(CW, t, CD), mat);
+  roof.position.set(0, CH / 2, 0);
+  roof.castShadow = true; roof.receiveShadow = true;
+  group.add(roof);
+
+  // ---- floor (darker, interior) ----
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(CW - 0.4, t, CD - 0.4), interiorMat);
+  floor.position.set(0, -CH / 2 + t / 2, 0);
+  floor.receiveShadow = true;
+  group.add(floor);
+
+  // ---- front wall with rectangular opening ----
+  const openZ = (openFace === '+z') ? CD / 2 : -CD / 2;
+  const leftW = (CW / 2 - openW / 2) + openX;
+  const rightW = (CW / 2 - openW / 2) - openX;
+  const leftPanel = new THREE.Mesh(new THREE.BoxGeometry(leftW, CH, t), mat);
+  leftPanel.position.set(-CW / 2 + leftW / 2, 0, openZ);
+  leftPanel.castShadow = true; leftPanel.receiveShadow = true;
+  group.add(leftPanel);
+  const rightPanel = new THREE.Mesh(new THREE.BoxGeometry(rightW, CH, t), mat);
+  rightPanel.position.set(CW / 2 - rightW / 2, 0, openZ);
+  rightPanel.castShadow = true; rightPanel.receiveShadow = true;
+  group.add(rightPanel);
+  const lintelH = CH - openH;
+  if (lintelH > 0.1) {
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(openW, lintelH, t), mat);
+    lintel.position.set(openX, CH / 2 - lintelH / 2, openZ);
+    lintel.castShadow = true; lintel.receiveShadow = true;
+    group.add(lintel);
+  }
+
+  // ---- corrugation ridges on exterior panels ----
+  const ridgeCount = 24;
+  for (let i = 0; i < ridgeCount; i++) {
+    const rx = -CW / 2 + (i + 0.5) * (CW / ridgeCount);
+    // closed side always gets ridges
+    const rc = new THREE.Mesh(new THREE.BoxGeometry(0.14, CH * 0.86, 0.14), ridgeMat);
+    rc.position.set(rx, 0, closedZ + (openFace === '+z' ? -0.05 : 0.05));
+    group.add(rc);
+    // open-side ridges only where panels exist
+    const inLeft = rx < -CW / 2 + leftW;
+    const inRight = rx > CW / 2 - rightW;
+    const inLintel = (Math.abs(rx - openX) <= openW / 2) && (openH < CH);
+    if (inLeft || inRight || inLintel) {
+      const ro = new THREE.Mesh(new THREE.BoxGeometry(0.14, CH * 0.86, 0.14), ridgeMat);
+      ro.position.set(rx, inLintel && !(inLeft || inRight) ? (CH / 2 - (CH - openH) / 2) : 0, openZ + (openFace === '+z' ? 0.05 : -0.05));
+      if (inLintel && !(inLeft || inRight)) {
+        ro.scale.y = (CH - openH) * 0.86 / (CH * 0.86);
+      }
+      group.add(ro);
+    }
+  }
+
+  // ---- corner posts + frame trim ----
+  [[-1, -1], [-1, 1], [1, -1], [1, 1]].forEach(([sx, sz]) => {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, CH + 0.1, 0.7), cornerMat);
+    post.position.set(sx * (CW / 2 - 0.1), 0, sz * (CD / 2 - 0.1));
+    group.add(post);
+  });
+  [CH / 2 + 0.03, -CH / 2 - 0.03].forEach(yy => {
+    [CD / 2, -CD / 2].forEach(zz => {
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(CW + 0.15, 0.3, 0.3), cornerMat);
+      trim.position.set(0, yy, zz);
+      group.add(trim);
+    });
+    [CW / 2, -CW / 2].forEach(xx => {
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, CD + 0.15), cornerMat);
+      trim.position.set(xx, yy, 0);
+      group.add(trim);
+    });
+  });
+
+  // ---- opening frame trim ----
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x1a1b1f, roughness: 0.8 });
+  const frameTop = new THREE.Mesh(new THREE.BoxGeometry(openW + 0.4, 0.25, 0.5), frameMat);
+  frameTop.position.set(openX, -CH / 2 + openH, openZ);
+  group.add(frameTop);
+  const frameBottom = new THREE.Mesh(new THREE.BoxGeometry(openW + 0.4, 0.25, 0.5), frameMat);
+  frameBottom.position.set(openX, -CH / 2 + 0.05, openZ);
+  group.add(frameBottom);
+  for (const sx of [-1, 1]) {
+    const side = new THREE.Mesh(new THREE.BoxGeometry(0.25, openH, 0.5), frameMat);
+    side.position.set(openX + sx * openW / 2, -CH / 2 + openH / 2, openZ);
+    group.add(side);
+  }
+
+  // ---- glass sliding doors filling the opening ----
+  if (opts.glassDoors !== false) {
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0xb8d6e8, transparent: true, opacity: 0.28,
+      metalness: 0.35, roughness: 0.08, side: THREE.DoubleSide
+    });
+    const mullionMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, metalness: 0.6, roughness: 0.35 });
+    const handleMat = new THREE.MeshStandardMaterial({ color: 0xa8a8ac, metalness: 0.85, roughness: 0.25 });
+    const panels = 4;                   // 4-panel slider
+    const slidOpenIndex = 1;            // one panel has slid open — shows the gap
+    const panelW = openW / panels;
+    const glassY = -CH / 2 + openH / 2;
+    const glassH = openH - 0.7;
+    // Head (top) and sill (bottom) tracks
+    for (const [yy, thick] of [[-CH / 2 + openH - 0.12, 0.22], [-CH / 2 + 0.22, 0.18]]) {
+      const track = new THREE.Mesh(new THREE.BoxGeometry(openW, thick, 0.35), mullionMat);
+      track.position.set(openX, yy, openZ);
+      group.add(track);
+    }
+    // Vertical mullions between panels + at sides
+    for (let i = 0; i <= panels; i++) {
+      if (i === slidOpenIndex || i === slidOpenIndex + 1) continue;  // skip where panel is slid open
+      const xx = openX - openW / 2 + i * panelW;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, glassH + 0.3, 0.22), mullionMat);
+      post.position.set(xx, glassY, openZ);
+      group.add(post);
+    }
+    // Glass panels themselves (skip the open one)
+    for (let i = 0; i < panels; i++) {
+      if (i === slidOpenIndex) continue;
+      const xC = openX - openW / 2 + (i + 0.5) * panelW;
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(panelW - 0.14, glassH, 0.08), glassMat);
+      glass.position.set(xC, glassY, openZ + (i % 2 === 0 ? 0.06 : -0.06));
+      group.add(glass);
+      // Horizontal mid-rail for a more slider-door look
+      const midRail = new THREE.Mesh(new THREE.BoxGeometry(panelW - 0.2, 0.1, 0.18), mullionMat);
+      midRail.position.set(xC, glassY - 0.3, openZ + (i % 2 === 0 ? 0.06 : -0.06));
+      group.add(midRail);
+    }
+    // Recessed pull handle on the adjacent panel (where the door slid from)
+    const handleX = openX - openW / 2 + (slidOpenIndex + 1.5) * panelW - panelW * 0.45;
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.2, 0.1), handleMat);
+    handle.position.set(handleX, glassY, openZ + 0.13);
+    group.add(handle);
+  }
+
+  return group;
+}
+
+/* ---------- U-shape placement ----------
+   Back wall: 2 containers wide (x=-20, +20), 4 tall (38 ft). Outside face z=-48.
+   Bottom-row back right container has a doorway opening (future interior stair).
+   Side walls: 2 deep (z=-20, +20), 2 tall.  Bottom row is cut open with
+   interior furniture facing the courtyard.
+*/
+const BACK_Z = -44;
+
+// Back wall, 4 tall, 2 wide
+for (let y = 0; y < 4; y++) {
+  for (let xi = 0; xi < 2; xi++) {
+    const xc = -20 + xi * 40;
+    let c;
+    if (y === 0 && xi === 1) {
+      // Doorway cut into bottom-right container — hints at interior staircase
+      c = makeOpenContainer(CONTAINER_COLORS[(xi + y * 2 + 3) % CONTAINER_COLORS.length], {
+        openW: 7, openH: 7.5, openX: -10, openFace: '+z', glassDoors: false
+      });
+    } else if (y === 0 && xi === 0) {
+      // Doorway into back-left bottom — access to the bathroom/utility area
+      c = makeOpenContainer(CONTAINER_COLORS[(xi + y * 2 + 3) % CONTAINER_COLORS.length], {
+        openW: 7, openH: 7.5, openX: 10, openFace: '+z', glassDoors: false
+      });
+    } else {
+      c = makeContainer(CONTAINER_COLORS[(xi + y * 2 + 3) % CONTAINER_COLORS.length]);
+    }
+    c.position.set(xc, CH / 2 + y * CH, BACK_Z);
+    scene.add(c);
+  }
+}
+
+// Side walls, 2 tall, 2 deep. Bottom row is cut open facing the courtyard.
+for (let y = 0; y < 2; y++) {
+  for (let zi = 0; zi < 2; zi++) {
+    const zc = -20 + zi * 40; // centers -20, +20
+    let cL;
+    if (y === 0) {
+      // open face at local +z. Rotated π/2 → opens toward +x (courtyard) ✓
+      cL = makeOpenContainer(CONTAINER_COLORS[(zi + y * 3 + 1) % CONTAINER_COLORS.length], {
+        openW: 24, openH: 8, openFace: '+z'
+      });
+    } else {
+      cL = makeContainer(CONTAINER_COLORS[(zi + y * 3 + 1) % CONTAINER_COLORS.length]);
+    }
+    cL.rotation.y = Math.PI / 2;
+    cL.position.set(-36, CH / 2 + y * CH, zc);
+    scene.add(cL);
+
+    let cR;
+    if (y === 0) {
+      // open face at local +z, rotated -π/2 → opens toward -x (courtyard) ✓
+      cR = makeOpenContainer(CONTAINER_COLORS[(zi + y * 3 + 6) % CONTAINER_COLORS.length], {
+        openW: 24, openH: 8, openFace: '+z'
+      });
+      cR.rotation.y = -Math.PI / 2;
+    } else {
+      cR = makeContainer(CONTAINER_COLORS[(zi + y * 3 + 6) % CONTAINER_COLORS.length]);
+      cR.rotation.y = Math.PI / 2;
+    }
+    cR.position.set(36, CH / 2 + y * CH, zc);
+    scene.add(cR);
+  }
+}
+
+/* ---------- Top drop-in deck (overhanging the front of the back wall) ----------
+   Deck sits on top of the back wall row (z=-48..-40) and extends forward
+   into the courtyard (z=-40..-32), giving an 8 ft overhang to drop off.
+   Total deck footprint: 22 ft wide × 16 ft deep.
+*/
+const topDeck = new THREE.Mesh(
+  new THREE.BoxGeometry(22, 0.5, 16),
+  new THREE.MeshStandardMaterial({ color: 0x5a4a2a, roughness: 0.9 })
+);
+topDeck.position.set(0, 38.3, -40);   // center so it spans z=-48 to z=-32
+topDeck.castShadow = true;
+topDeck.receiveShadow = true;
+scene.add(topDeck);
+
+// Visible cantilever supports under the overhanging section
+const cantileverMat = new THREE.MeshStandardMaterial({ color: 0x4a4a50, roughness: 0.6, metalness: 0.5 });
+for (const sx of [-9, 0, 9]) {
+  const strut = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, 8), cantileverMat);
+  strut.position.set(sx, 38.0, -36);   // under the overhang, z=-40..-32
+  strut.castShadow = true;
+  scene.add(strut);
+}
+
+function makeRail(x1, z1, x2, z2, y = 38.3) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.7, roughness: 0.35 });
+  const dx = x2 - x1, dz = z2 - z1;
+  const len = Math.hypot(dx, dz);
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, len, 8), mat);
+  bar.position.set((x1 + x2) / 2, y + 3.5, (z1 + z2) / 2);
+  bar.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, 0, dz).normalize());
+  g.add(bar);
+  // Mid-rail at ~1.8 ft for a proper guard
+  const mid = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, len, 8), mat);
+  mid.position.set((x1 + x2) / 2, y + 1.8, (z1 + z2) / 2);
+  mid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, 0, dz).normalize());
+  g.add(mid);
+  const steps = Math.max(2, Math.round(len / 5));
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const px = x1 + dx * t, pz = z1 + dz * t;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.5, 8), mat);
+    post.position.set(px, y + 1.75, pz);
+    g.add(post);
+  }
+  return g;
+}
+// Rails: back edge (stairs land at the right third so leave a gap there),
+// plus left and right sides. Front edge is the drop-in — left open.
+scene.add(makeRail(-11, -48, 7, -48));        // back rail with gap at stairs
+scene.add(makeRail(-11, -48, -11, -32));      // left side rail
+scene.add(makeRail(11, -48, 11, -32));        // right side rail
+
+/* ---------- Staircase up behind the back wall ----------
+   Stairs rise from ground level at z=-72 (outside, behind the wall)
+   UP to the top of the back wall at z=-48. The rider exits onto the
+   rear edge of the drop-in deck and walks across to the front.
+*/
+function makeStairs() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x7a7a7a, metalness: 0.55, roughness: 0.45 });
+  const steps = 42;
+  const rise = 38, run = 24;
+  for (let i = 0; i < steps; i++) {
+    const step = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.3, run / steps + 0.4), mat);
+    // i=0 is the bottom step at z=-72; i=steps is the top at z=-48.
+    step.position.set(9, (i / steps) * rise + 0.2, -72 + (i / steps) * run);
+    step.castShadow = true;
+    g.add(step);
+  }
+  const stringerMat = new THREE.MeshStandardMaterial({ color: 0x5a5a5a, roughness: 0.7 });
+  for (const sx of [7, 11]) {
+    const sg = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.6, Math.hypot(rise, run)), stringerMat);
+    sg.position.set(sx, rise / 2, -60);
+    sg.rotation.x = -Math.atan2(rise, run); // negative because stairs now rise toward +z
+    sg.castShadow = true;
+    g.add(sg);
+  }
+  // Small landing at the top so you step off the stairs onto the deck
+  const landingMat = new THREE.MeshStandardMaterial({ color: 0x5a5a5a, roughness: 0.7 });
+  const landing = new THREE.Mesh(new THREE.BoxGeometry(4.5, 0.3, 2), landingMat);
+  landing.position.set(9, rise + 0.2, -47);
+  landing.castShadow = true;
+  g.add(landing);
+  // Stair handrails
+  const railMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.7, roughness: 0.35 });
+  for (const sx of [7, 11]) {
+    const hr = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, Math.hypot(rise, run) + 2, 8), railMat);
+    hr.position.set(sx, rise / 2 + 3, -60);
+    hr.rotation.x = -Math.atan2(rise, run);
+    g.add(hr);
+  }
+  return g;
+}
+scene.add(makeStairs());
+
+/* ---------- Ramp surface builder ---------- */
+function buildRampSurface(curve, width, segments, material) {
+  const pts = curve.getPoints(segments);
+  const geo = new THREE.BufferGeometry();
+  const positions = [], normals = [], uvs = [], indices = [];
+  const halfW = width / 2;
+  const worldUp = new THREE.Vector3(0, 1, 0);
+
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    const t = i / (pts.length - 1);
+    const tangent = curve.getTangent(t).normalize();
+    let side = new THREE.Vector3().crossVectors(tangent, worldUp);
+    if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+    side.normalize();
+    const normal = new THREE.Vector3().crossVectors(side, tangent).normalize();
+    if (normal.y < 0) normal.multiplyScalar(-1);
+
+    const left = p.clone().add(side.clone().multiplyScalar(halfW));
+    const right = p.clone().add(side.clone().multiplyScalar(-halfW));
+    positions.push(left.x, left.y, left.z, right.x, right.y, right.z);
+    normals.push(normal.x, normal.y, normal.z, normal.x, normal.y, normal.z);
+    uvs.push(0, t, 1, t);
+  }
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = i * 2, b = i * 2 + 1, c = i * 2 + 2, d = i * 2 + 3;
+    indices.push(a, c, b, b, c, d);
+  }
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+const RAMP_W = 14;
+const rampMat = new THREE.MeshStandardMaterial({
+  color: 0x3d3f45, roughness: 0.85, metalness: 0.1, side: THREE.DoubleSide
+});
+
+/* ---------- Scaffolding roll-in (curves flush to the concrete) ----------
+   Drops 45 ft; steepest mid-section is ~50°. Transition tangent to the
+   pad so the rider rolls smoothly onto the concrete. No built-in kicker —
+   the takeoff is a separate, movable piece.
+*/
+const rollinPoints = [
+  new THREE.Vector3(0, 38, -32),     // top of drop-in deck (overhanging front)
+  new THREE.Vector3(0, 37.2, -30.5), // drop-in lip
+  new THREE.Vector3(0, 34, -27.5),   // entering the steep
+  new THREE.Vector3(0, 28, -22),     // ~50°
+  new THREE.Vector3(0, 21, -15),     // ~50°
+  new THREE.Vector3(0, 13, -7.5),    // ~50°
+  new THREE.Vector3(0, 6.5, 0),      // transition begins
+  new THREE.Vector3(0, 2.4, 7),      // curving flat
+  new THREE.Vector3(0, 0.5, 14),     // nearly flush
+  new THREE.Vector3(0, 0.12, 20)     // meets the concrete — ~22 ft flat to the kicker
+];
+const rollinCurve = new THREE.CatmullRomCurve3(rollinPoints);
+scene.add(buildRampSurface(rollinCurve, RAMP_W, 100, rampMat));
+
+/* ---------- Walkable trestle scaffolding ----------
+   Instead of per-station vertical posts (which clutter the ground below
+   the ramp), we use two big trestle/truss towers per side. Each tower
+   has 4 corner posts, horizontal ties, and diagonal braces — and a long
+   longitudinal girder along the ramp edges transfers the load from the
+   ramp between the tower positions.
+   Result: you can walk freely under the ramp in the clear bays.
+*/
+function buildTrestleScaffolding(curve, rampWidth) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0xa8a8a8, metalness: 0.7, roughness: 0.35 });
+  const brMat = new THREE.MeshStandardMaterial({ color: 0x8f8f8f, metalness: 0.7, roughness: 0.4 });
+  const halfW = rampWidth / 2;
+  const worldUp = new THREE.Vector3(0, 1, 0);
+
+  // Sample the curve at each z we care about and get the (side, height)
+  function rampEdgeAt(zTarget) {
+    // binary search t such that curve.getPoint(t).z ~ zTarget
+    let lo = 0, hi = 1;
+    for (let i = 0; i < 30; i++) {
+      const m = (lo + hi) / 2;
+      const z = curve.getPoint(m).z;
+      if (z < zTarget) lo = m; else hi = m;
+    }
+    const t = (lo + hi) / 2;
+    const p = curve.getPoint(t);
+    const tan = curve.getTangent(t).normalize();
+    let side = new THREE.Vector3().crossVectors(tan, worldUp);
+    if (side.lengthSq() < 1e-4) side.set(1, 0, 0);
+    side.normalize();
+    const leftTop = p.clone().add(side.clone().multiplyScalar(halfW)).add(new THREE.Vector3(0, -0.3, 0));
+    const rightTop = p.clone().add(side.clone().multiplyScalar(-halfW)).add(new THREE.Vector3(0, -0.3, 0));
+    return { p, leftTop, rightTop };
+  }
+
+  // Tower footprints (along z). Chose positions that leave big walkable bays.
+  const towerZs = [-24, -10];  // two towers per side — big clear bay in between
+  const towerLen = 6;          // footprint length along z
+  const towerSpread = 2.5;     // footprint width along x
+  const postR = 0.28;
+
+  const stationRecords = [];
+  towerZs.forEach(zCenter => {
+    const front = rampEdgeAt(zCenter + towerLen / 2);
+    const back  = rampEdgeAt(zCenter - towerLen / 2);
+    stationRecords.push({ zCenter, front, back });
+
+    // Two trestle towers at this z — one on the left of the ramp, one on the right.
+    [-1, 1].forEach(sideDir => {
+      const xRampEdge = (sideDir === -1) ? front.leftTop.x : front.rightTop.x;
+      const xOuter = xRampEdge + sideDir * 0; // flush with ramp edge
+      const xInner = xRampEdge + sideDir * -towerSpread; // toward the ramp centerline (under the ramp)
+      const zF = zCenter + towerLen / 2;
+      const zB = zCenter - towerLen / 2;
+
+      // Heights at each corner (slightly off the ramp).
+      const hFO = (sideDir === -1 ? front.leftTop.y : front.rightTop.y);
+      const hBO = (sideDir === -1 ? back.leftTop.y  : back.rightTop.y);
+      const hFI = hFO; // inner-corner height tied to outer (horizontal cap at that z)
+      const hBI = hBO;
+
+      // 4 corner posts (each goes from ground up to the ramp edge)
+      const corners = [
+        { x: xOuter, z: zF, h: hFO },
+        { x: xOuter, z: zB, h: hBO },
+        { x: xInner, z: zF, h: hFI },
+        { x: xInner, z: zB, h: hBI }
+      ];
+      corners.forEach(c => {
+        const post = new THREE.Mesh(
+          new THREE.CylinderGeometry(postR, postR, c.h, 10), mat
+        );
+        post.position.set(c.x, c.h / 2, c.z);
+        post.castShadow = true;
+        g.add(post);
+      });
+
+      // Horizontal ties at 3 levels (bottom 4 ft, mid, top) — running around the tower
+      const tieLevels = [4, 14, Math.min(25, Math.min(hFO, hBO) - 1)].filter(y => y > 2 && y < Math.min(hFO, hBO));
+      tieLevels.forEach(y => {
+        // two longitudinal (along z) ties — outer and inner
+        [xOuter, xInner].forEach(xc => {
+          const tie = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.13, 0.13, towerLen, 6), brMat
+          );
+          tie.position.set(xc, y, zCenter);
+          tie.rotation.x = Math.PI / 2;
+          g.add(tie);
+        });
+        // two lateral (along x) ties — front and back
+        [zF, zB].forEach(zc => {
+          const tie = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.13, 0.13, towerSpread, 6), brMat
+          );
+          tie.position.set((xOuter + xInner) / 2, y, zc);
+          tie.rotation.z = Math.PI / 2;
+          g.add(tie);
+        });
+      });
+
+      // Diagonal X-bracing on the two longitudinal faces (outer and inner)
+      [xOuter, xInner].forEach(xc => {
+        const yA = 0.1, yB = Math.min(hFO, hBO) - 0.3;
+        for (const [za, zb] of [[zB, zF], [zF, zB]]) {
+          const dy = yB - yA;
+          const dz = zb - za;
+          const len = Math.hypot(dy, dz);
+          const brace = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.11, 0.11, len, 6), brMat
+          );
+          brace.position.set(xc, (yA + yB) / 2, (za + zb) / 2);
+          brace.quaternion.setFromUnitVectors(
+            new THREE.Vector3(0, 1, 0),
+            new THREE.Vector3(0, dy, dz).normalize()
+          );
+          g.add(brace);
+        }
+      });
+
+      // Diagonal bracing on the two lateral faces (front zF and back zB)
+      [zF, zB].forEach(zc => {
+        const yA = 0.1, yB = Math.min(hFO, hBO) - 0.3;
+        const dy = yB - yA;
+        const dx = xInner - xOuter;
+        const len = Math.hypot(dy, dx);
+        const brace = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.11, 0.11, len, 6), brMat
+        );
+        brace.position.set((xOuter + xInner) / 2, (yA + yB) / 2, zc);
+        brace.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          new THREE.Vector3(dx, dy, 0).normalize()
+        );
+        g.add(brace);
+      });
+    });
+  });
+
+  // Longitudinal girders along each ramp edge. These run the full length
+  // of the ramp between the towers and out to the back wall + to the lower
+  // ground contact. We approximate with a few straight segments following
+  // the curve at a small offset below the surface.
+  const girderMat = new THREE.MeshStandardMaterial({ color: 0x4a4a50, roughness: 0.7, metalness: 0.5 });
+  const girderZs = [-32, -24, -10, 2];
+  for (let i = 0; i < girderZs.length - 1; i++) {
+    const za = girderZs[i], zb = girderZs[i + 1];
+    const a = rampEdgeAt(za);
+    const b = rampEdgeAt(zb);
+    [['leftTop'], ['rightTop']].forEach(([key]) => {
+      const pa = a[key].clone().add(new THREE.Vector3(0, -0.6, 0));
+      const pb = b[key].clone().add(new THREE.Vector3(0, -0.6, 0));
+      const mid = new THREE.Vector3().addVectors(pa, pb).multiplyScalar(0.5);
+      const len = pa.distanceTo(pb);
+      const dir = new THREE.Vector3().subVectors(pb, pa).normalize();
+      const girder = new THREE.Mesh(
+        new THREE.BoxGeometry(0.35, 0.9, len), girderMat
+      );
+      girder.position.copy(mid);
+      girder.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
+      girder.castShadow = true;
+      g.add(girder);
+    });
+  }
+
+  return g;
+}
+scene.add(buildTrestleScaffolding(rollinCurve, RAMP_W));
+
+/* ---------- Freestanding takeoff kicker ----------
+   A standalone ramp that sits on the concrete. Can be picked up, swapped
+   out, or repositioned to change the distance from the roll-in. Shown
+   here in one placement — mounts directly to the pad.
+*/
+function buildTakeoffKicker(posZ, kLen = 12, kHgt = 9, kWid = 14) {
+  const group = new THREE.Group();
+
+  // side profile: tangent to ground at back, rising to a lip at the front
+  const shape = new THREE.Shape();
+  shape.moveTo(0, 0);
+  const segs = 30;
+  for (let i = 1; i <= segs; i++) {
+    const t = i / segs;
+    const x = t * kLen;
+    const y = kHgt * (1 - Math.cos(t * Math.PI / 2));
+    shape.lineTo(x, y);
+  }
+  shape.lineTo(kLen, 0);
+  shape.lineTo(0, 0);
+
+  const body = new THREE.Mesh(
+    new THREE.ExtrudeGeometry(shape, { depth: kWid, bevelEnabled: false }),
+    new THREE.MeshStandardMaterial({ color: 0x4a4d55, roughness: 0.82, metalness: 0.08 })
+  );
+  body.castShadow = true;
+  body.receiveShadow = true;
+  body.rotation.y = -Math.PI / 2;
+  body.position.set(kWid / 2, 0, posZ);
+  group.add(body);
+
+  // Top lip coping (metal edge at the launch point)
+  const lipMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.8, roughness: 0.28 });
+  const lip = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, kWid, 12),
+    lipMat
+  );
+  lip.rotation.z = Math.PI / 2;
+  lip.position.set(0, kHgt - 0.1, posZ + kLen);
+  lip.castShadow = true;
+  group.add(lip);
+
+  // Bottom skids (visible hint that it's a portable unit)
+  const skidMat = new THREE.MeshStandardMaterial({ color: 0x1f1f22, roughness: 0.6, metalness: 0.5 });
+  for (const sx of [-kWid / 2 + 1.5, 0, kWid / 2 - 1.5]) {
+    const skid = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.25, kLen),
+      skidMat
+    );
+    skid.position.set(sx, 0.12, posZ + kLen / 2);
+    skid.castShadow = true;
+    group.add(skid);
+  }
+
+  // Back base rail (for towing / anchoring)
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(kWid + 0.4, 0.5, 0.8),
+    skidMat
+  );
+  base.position.set(0, 0.25, posZ + 0.1);
+  base.castShadow = true;
+  group.add(base);
+
+  return group;
+}
+
+// Current placement: 14 ft tall × 18 ft long kicker on the final stripe.
+// This is about the tallest Nitro-scale takeoff you'd want on this setup —
+// use this version as the scale reference. Swap in shorter kickers for
+// training days.
+const KICKER_Z = 42;
+scene.add(buildTakeoffKicker(KICKER_Z, 18, 14, 14));
+
+// A second, shorter "training" kicker parked off to the side showing the
+// swappable-module idea. Also a good scale comparison: 9 ft vs 14 ft.
+const parkedKicker = buildTakeoffKicker(0, 12, 9, 14);
+parkedKicker.position.set(-70, 0, 30);
+parkedKicker.rotation.y = Math.PI / 2;
+scene.add(parkedKicker);
+
+/* ---------- 6 ft human figure for scale reference ---------- */
+function makePerson(x, z, facing = 0) {
+  const g = new THREE.Group();
+  const skin = new THREE.MeshStandardMaterial({ color: 0xd4a27a, roughness: 0.9 });
+  const shirt = new THREE.MeshStandardMaterial({ color: 0xc83a2a, roughness: 0.9 });
+  const pants = new THREE.MeshStandardMaterial({ color: 0x1f2530, roughness: 0.9 });
+  const hair = new THREE.MeshStandardMaterial({ color: 0x2a1a14, roughness: 0.9 });
+
+  // Legs (2.6 ft)
+  for (const lx of [-0.32, 0.32]) {
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 2.6, 10), pants);
+    leg.position.set(lx, 1.3, 0);
+    leg.castShadow = true;
+    g.add(leg);
+  }
+  // Torso
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.66, 0.8, 2.2, 12), shirt);
+  torso.position.set(0, 3.7, 0);
+  torso.castShadow = true;
+  g.add(torso);
+  // Shoulders cap
+  const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.72, 12, 10), shirt);
+  shoulders.position.set(0, 4.75, 0);
+  shoulders.scale.set(1, 0.55, 1);
+  g.add(shoulders);
+  // Head
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.48, 14, 12), skin);
+  head.position.set(0, 5.45, 0);
+  head.castShadow = true;
+  g.add(head);
+  // Hair cap
+  const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.5, 14, 12, 0, Math.PI * 2, 0, Math.PI / 2.2), hair);
+  hairCap.position.set(0, 5.55, 0);
+  g.add(hairCap);
+  // Arms
+  for (const ax of [-0.95, 0.95]) {
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.22, 2.1, 10), shirt);
+    arm.position.set(ax, 3.7, 0);
+    arm.rotation.z = ax < 0 ? 0.12 : -0.12;
+    arm.castShadow = true;
+    g.add(arm);
+    const hand = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), skin);
+    hand.position.set(ax * 1.07, 2.65, 0);
+    g.add(hand);
+  }
+
+  g.position.set(x, 0, z);
+  g.rotation.y = facing;
+  return g;
+}
+// Person standing next to the 14 ft kicker for scale reference
+scene.add(makePerson(16, 42, -Math.PI / 2));
+// Person on the overhanging drop-in deck, about to drop in (faces +z)
+const deckPerson = makePerson(-5, -37, 0);
+deckPerson.position.y = 38.55;
+scene.add(deckPerson);
+// Person hanging out in the front-left courtyard lounge by the fire pit
+scene.add(makePerson(-18, 22, 0.3));
+// Person walking through the clear bay under the ramp
+scene.add(makePerson(-2, -17, Math.PI / 2));
+// Person at the picnic table on the right side
+scene.add(makePerson(20, 33, Math.PI));
+// Person relaxing in the back-left chill corner (next to the sofa)
+scene.add(makePerson(-29, -34, Math.PI / 2));
+
+/* ---------- Concrete position markings ----------
+   Subtle stripes on the pad showing a range the kicker can be slid into,
+   so the rider can dial in takeoff distance.
+*/
+const markMat = new THREE.MeshStandardMaterial({ color: 0xf4d14a, roughness: 0.85, emissive: 0x221700 });
+for (let z = 14; z <= 42; z += 4) {
+  const stripe = new THREE.Mesh(new THREE.PlaneGeometry(RAMP_W + 4, 0.4), markMat);
+  stripe.rotation.x = -Math.PI / 2;
+  stripe.position.set(0, 0.12, z);
+  stripe.receiveShadow = true;
+  scene.add(stripe);
+}
+
+/* ---------- Interior furniture (visible through the container cutouts) ---------- */
+function makeBunkBed(cx, cz, rot = 0) {
+  const g = new THREE.Group();
+  const frameMat  = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1 });
+  const sheetMat  = new THREE.MeshStandardMaterial({ color: 0xe0e0d5, roughness: 1 });
+  const pillowMat = new THREE.MeshStandardMaterial({ color: 0xd44747, roughness: 1 });
+  const W = 3.3, L = 7, tiers = 3;
+  for (let i = 0; i < tiers; i++) {
+    const y = 1 + i * 2.6;
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(W, 0.4, L), sheetMat);
+    bed.position.set(0, y, 0);
+    bed.castShadow = true; bed.receiveShadow = true;
+    g.add(bed);
+    const pillow = new THREE.Mesh(new THREE.BoxGeometry(W * 0.8, 0.25, 1.3), pillowMat);
+    pillow.position.set(0, y + 0.35, -L / 2 + 0.9);
+    g.add(pillow);
+    // ladder rung at each tier on the "near" side
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, L), frameMat);
+    rail.position.set(W / 2 - 0.05, y, 0);
+    g.add(rail);
+  }
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.22, 8.5, 0.22), frameMat);
+    post.position.set(sx * W / 2, 4.25, sz * L / 2);
+    g.add(post);
+  }
+  // Simple ladder on the courtyard-facing side (+x side before rotation)
+  const ladderMat = frameMat;
+  for (let i = 0; i < 6; i++) {
+    const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.6, 6), ladderMat);
+    rung.rotation.z = Math.PI / 2;
+    rung.position.set(W / 2 + 0.35, 0.6 + i * 1.3, L / 2 - 0.2);
+    g.add(rung);
+  }
+  for (const sz of [L / 2 - 1, L / 2 + 0.6]) {
+    const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 8.2, 6), ladderMat);
+    rail.position.set(W / 2 + 0.35, 4.1, sz);
+    g.add(rail);
+  }
+  g.position.set(cx, 0.05, cz);
+  g.rotation.y = rot;
+  return g;
+}
+
+function makeKitchen(cx, cz, rot = 0) {
+  const g = new THREE.Group();
+  const cabMat   = new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 0.85 });
+  const counterMat = new THREE.MeshStandardMaterial({ color: 0x23252c, roughness: 0.45, metalness: 0.4 });
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0xcdcdd1, metalness: 0.85, roughness: 0.25 });
+  const stoveMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, metalness: 0.8, roughness: 0.35 });
+  // Lower cabinets (base units)
+  const base = new THREE.Mesh(new THREE.BoxGeometry(14, 3, 2), cabMat);
+  base.position.set(0, 1.5, 0);
+  base.castShadow = true; base.receiveShadow = true;
+  g.add(base);
+  // Counter top
+  const top = new THREE.Mesh(new THREE.BoxGeometry(14.2, 0.2, 2.2), counterMat);
+  top.position.set(0, 3.1, 0);
+  g.add(top);
+  // Sink
+  const sink = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.35, 1.5), steelMat);
+  sink.position.set(-3, 3.25, 0);
+  g.add(sink);
+  // Faucet
+  const faucet = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.6, 6), steelMat);
+  faucet.position.set(-3, 4.1, -0.6);
+  g.add(faucet);
+  // Stovetop
+  const stove = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.15, 2), stoveMat);
+  stove.position.set(1, 3.22, 0);
+  g.add(stove);
+  // Burners
+  for (const [bx, bz] of [[-0.7, -0.4], [0.7, -0.4], [-0.7, 0.4], [0.7, 0.4]]) {
+    const burner = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.06, 14), steelMat);
+    burner.position.set(1 + bx, 3.3, bz);
+    g.add(burner);
+  }
+  // Upper cabinets
+  const upper = new THREE.Mesh(new THREE.BoxGeometry(14, 2.5, 1.3), cabMat);
+  upper.position.set(0, 6, -0.35);
+  upper.castShadow = true;
+  g.add(upper);
+  // Fridge (tall unit at the end)
+  const fridge = new THREE.Mesh(new THREE.BoxGeometry(2.8, 7, 2.4), steelMat);
+  fridge.position.set(6.5, 3.5, 0.2);
+  fridge.castShadow = true;
+  g.add(fridge);
+  const handle = new THREE.Mesh(new THREE.BoxGeometry(0.15, 3, 0.2), stoveMat);
+  handle.position.set(5.2, 4.5, 1.45);
+  g.add(handle);
+  g.position.set(cx, 0.05, cz);
+  g.rotation.y = rot;
+  return g;
+}
+
+function makeBathroom(cx, cz, rot = 0) {
+  const g = new THREE.Group();
+  const tileMat     = new THREE.MeshStandardMaterial({ color: 0xe0e2e4, roughness: 0.75 });
+  const porcelain   = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3, metalness: 0.05 });
+  const glassMat    = new THREE.MeshStandardMaterial({ color: 0xc0dff0, transparent: true, opacity: 0.35, metalness: 0.4, roughness: 0.1 });
+  const woodVanity  = new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 0.85 });
+  // Shower enclosure
+  const showerBase = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.2, 3.8), tileMat);
+  showerBase.position.set(-4, 0.1, 0);
+  g.add(showerBase);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(3.8, 6.8, 0.1), glassMat);
+  glass.position.set(-4, 3.4, 1.9);
+  g.add(glass);
+  const glassSide = new THREE.Mesh(new THREE.BoxGeometry(0.1, 6.8, 3.8), glassMat);
+  glassSide.position.set(-2.1, 3.4, 0);
+  g.add(glassSide);
+  // Showerhead + pipe
+  const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2, 6), new THREE.MeshStandardMaterial({ color: 0xbbbbbb, metalness: 0.8 }));
+  pipe.position.set(-5.5, 5.8, 0);
+  g.add(pipe);
+  const head = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.2, 10), new THREE.MeshStandardMaterial({ color: 0xbbbbbb, metalness: 0.8 }));
+  head.rotation.x = Math.PI / 2;
+  head.position.set(-5.5, 6.6, 0.3);
+  g.add(head);
+  // Toilet
+  const bowl = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, 1.9), porcelain);
+  bowl.position.set(1, 0.7, 0);
+  g.add(bowl);
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.12, 1.9), porcelain);
+  seat.position.set(1, 1.3, 0);
+  g.add(seat);
+  const tank = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2, 0.8), porcelain);
+  tank.position.set(1, 2.25, -0.9);
+  g.add(tank);
+  // Vanity
+  const vanity = new THREE.Mesh(new THREE.BoxGeometry(4, 2.8, 1.8), woodVanity);
+  vanity.position.set(5, 1.4, 0);
+  g.add(vanity);
+  const counterMat = new THREE.MeshStandardMaterial({ color: 0xd6d2c8, roughness: 0.4 });
+  const vcount = new THREE.Mesh(new THREE.BoxGeometry(4.1, 0.2, 1.9), counterMat);
+  vcount.position.set(5, 2.9, 0);
+  g.add(vcount);
+  const basin = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.35, 14), porcelain);
+  basin.position.set(5, 3.18, 0.05);
+  g.add(basin);
+  // Mirror
+  const mirror = new THREE.Mesh(new THREE.BoxGeometry(3, 2.5, 0.12), new THREE.MeshStandardMaterial({ color: 0xb8d4e4, metalness: 0.9, roughness: 0.1 }));
+  mirror.position.set(5, 5.5, -0.8);
+  g.add(mirror);
+  g.position.set(cx, 0.05, cz);
+  g.rotation.y = rot;
+  return g;
+}
+
+function makeSofa(cx, cz, rot = 0) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x4a6a7a, roughness: 0.95 });
+  const cushionMat = new THREE.MeshStandardMaterial({ color: 0x6a8a9a, roughness: 0.95 });
+  const base = new THREE.Mesh(new THREE.BoxGeometry(8, 1.2, 3.2), mat);
+  base.position.set(0, 0.8, 0);
+  g.add(base);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(8, 2.5, 0.7), mat);
+  back.position.set(0, 2.55, -1.25);
+  g.add(back);
+  for (const sx of [-1, 1]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.7, 2, 3.2), mat);
+    arm.position.set(sx * 3.65, 2.1, 0);
+    g.add(arm);
+  }
+  for (let i = -1; i <= 1; i++) {
+    const c = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.6, 2.4), cushionMat);
+    c.position.set(i * 2.5, 1.7, 0.2);
+    g.add(c);
+    const p = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.4, 1.6), cushionMat);
+    p.position.set(i * 2.5, 2.1, -0.7);
+    p.rotation.x = -0.3;
+    g.add(p);
+  }
+  g.position.set(cx, 0.05, cz);
+  g.rotation.y = rot;
+  return g;
+}
+
+function makeCoffeeTable(cx, cz) {
+  const g = new THREE.Group();
+  const topMat = new THREE.MeshStandardMaterial({ color: 0x8a5a34, roughness: 0.9 });
+  const top = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.25, 2), topMat);
+  top.position.set(0, 1.3, 0);
+  g.add(top);
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.3, 0.2), topMat);
+    leg.position.set(sx * 1.55, 0.65, sz * 0.85);
+    g.add(leg);
+  }
+  g.position.set(cx, 0.05, cz);
+  return g;
+}
+
+function makeInteriorStairs(cx, cz, rot = 0) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x6a5a4a, roughness: 0.9 });
+  const steps = 10, rise = 8.5, run = 9;
+  for (let i = 0; i < steps; i++) {
+    const step = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.25, run / steps + 0.3), mat);
+    step.position.set(0, (i + 0.5) / steps * rise, (i + 0.5) / steps * run);
+    step.castShadow = true;
+    g.add(step);
+  }
+  // Stringer
+  const stringerMat = new THREE.MeshStandardMaterial({ color: 0x4a3a2a });
+  for (const sx of [-1.7, 1.7]) {
+    const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.4, Math.hypot(rise, run)), stringerMat);
+    s.position.set(sx, rise / 2, run / 2);
+    s.rotation.x = Math.atan2(rise, run);
+    g.add(s);
+  }
+  // Sign at bottom hinting "to top deck"
+  g.position.set(cx, 0.05, cz);
+  g.rotation.y = rot;
+  return g;
+}
+
+/* ---------- Courtyard props (picnic table, fire pit, benches, planters) ---------- */
+function makePicnicTable(cx, cz, rot = 0) {
+  const g = new THREE.Group();
+  const woodMat = new THREE.MeshStandardMaterial({ color: 0x8a5a34, roughness: 0.95 });
+  const boardMat = new THREE.MeshStandardMaterial({ color: 0x7a4a2a, roughness: 0.95 });
+  // Table top — 3 planks
+  for (let i = -1; i <= 1; i++) {
+    const plank = new THREE.Mesh(new THREE.BoxGeometry(8, 0.18, 1.1), woodMat);
+    plank.position.set(0, 2.55, i * 1.1);
+    g.add(plank);
+  }
+  // Benches
+  for (const sz of [-1, 1]) {
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(8, 0.2, 1.1), boardMat);
+    bench.position.set(0, 1.5, sz * 2.5);
+    g.add(bench);
+  }
+  // A-frame legs
+  for (const sx of [-1, 1]) {
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(0.25, 2.5, 5.8), woodMat);
+    frame.position.set(sx * 3, 1.3, 0);
+    g.add(frame);
+    const crossLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 6), woodMat);
+    crossLeg.position.set(sx * 3, 0.25, 0);
+    g.add(crossLeg);
+  }
+  g.position.set(cx, 0, cz);
+  g.rotation.y = rot;
+  return g;
+}
+
+function makeFirePit(cx, cz) {
+  const g = new THREE.Group();
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x5a5a58, roughness: 1 });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(2.4, 0.55, 12, 24), stoneMat);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.set(0, 0.55, 0);
+  g.add(ring);
+  // Ash bowl
+  const ash = new THREE.Mesh(new THREE.CircleGeometry(2.1, 18), new THREE.MeshStandardMaterial({ color: 0x1e1a16, roughness: 1 }));
+  ash.rotation.x = -Math.PI / 2;
+  ash.position.set(0, 0.18, 0);
+  g.add(ash);
+  // Logs stacked
+  const logMat = new THREE.MeshStandardMaterial({ color: 0x4a2a1a });
+  for (let i = 0; i < 4; i++) {
+    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 3.6, 8), logMat);
+    log.rotation.z = Math.PI / 2;
+    log.rotation.y = (i * Math.PI / 4);
+    log.position.set(0, 0.4 + i * 0.25, 0);
+    g.add(log);
+  }
+  // Flame glow
+  const glowMat = new THREE.MeshStandardMaterial({ color: 0xff6a20, emissive: 0xff4a10, emissiveIntensity: 1.2, roughness: 1 });
+  const glow = new THREE.Mesh(new THREE.ConeGeometry(0.8, 2.2, 10), glowMat);
+  glow.position.set(0, 1.6, 0);
+  g.add(glow);
+  // Small light from fire
+  const firelight = new THREE.PointLight(0xff7a3a, 0.8, 45, 2);
+  firelight.position.set(0, 2, 0);
+  g.add(firelight);
+  g.position.set(cx, 0.05, cz);
+  return g;
+}
+
+function makeBench(cx, cz, rot = 0) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x5a3a24, roughness: 0.95 });
+  const seat = new THREE.Mesh(new THREE.BoxGeometry(6, 0.22, 1.4), mat);
+  seat.position.set(0, 1.4, 0);
+  g.add(seat);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(6, 1.8, 0.2), mat);
+  back.position.set(0, 2.3, -0.6);
+  g.add(back);
+  for (const sx of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.4, 1.4), mat);
+    leg.position.set(sx * 2.6, 0.7, 0);
+    g.add(leg);
+  }
+  g.position.set(cx, 0, cz);
+  g.rotation.y = rot;
+  return g;
+}
+
+function makePlanter(cx, cz, size = 2.5) {
+  const g = new THREE.Group();
+  const pot = new THREE.Mesh(
+    new THREE.BoxGeometry(size, 1.6, size),
+    new THREE.MeshStandardMaterial({ color: 0x6a4028, roughness: 1 })
+  );
+  pot.position.set(0, 0.8, 0);
+  pot.castShadow = true;
+  g.add(pot);
+  // Foliage
+  for (let i = 0; i < 3; i++) {
+    const f = new THREE.Mesh(
+      new THREE.SphereGeometry(size * 0.35 + Math.random() * 0.3, 10, 8),
+      new THREE.MeshStandardMaterial({ color: [0x3a6a2a, 0x4a7a2e, 0x2e6228][i % 3], roughness: 1 })
+    );
+    f.position.set((Math.random() - 0.5) * size * 0.5, 1.8 + Math.random() * 0.4, (Math.random() - 0.5) * size * 0.5);
+    g.add(f);
+  }
+  g.position.set(cx, 0.05, cz);
+  return g;
+}
+
+function makeStringLights(x1, z1, x2, z2, height) {
+  const g = new THREE.Group();
+  const wireMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a });
+  const bulbMat = new THREE.MeshStandardMaterial({ color: 0xfff3a8, emissive: 0xfff3a8, emissiveIntensity: 0.9 });
+  const dx = x2 - x1, dz = z2 - z1, len = Math.hypot(dx, dz);
+  const wire = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, len, 4), wireMat);
+  wire.position.set((x1 + x2) / 2, height, (z1 + z2) / 2);
+  wire.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, 0, dz).normalize());
+  g.add(wire);
+  const count = Math.max(6, Math.round(len / 2.5));
+  for (let i = 0; i <= count; i++) {
+    const t = i / count;
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), bulbMat);
+    bulb.position.set(x1 + dx * t, height - 0.3 - Math.sin(t * Math.PI) * 0.6, z1 + dz * t);
+    g.add(bulb);
+  }
+  return g;
+}
+
+/* ---------- v8: fake grass, garden beds, wall-mounted TVs ---------- */
+function makeFakeGrassPatch(cx, cz, w, d) {
+  const g = new THREE.Group();
+  const turfMat = new THREE.MeshStandardMaterial({ color: 0x4c8a36, roughness: 1 });
+  const patch = new THREE.Mesh(new THREE.PlaneGeometry(w, d), turfMat);
+  patch.rotation.x = -Math.PI / 2;
+  patch.position.set(0, 0.15, 0);
+  patch.receiveShadow = true;
+  g.add(patch);
+  // Subtle color variation — lighter stripes running along the turf length
+  for (let i = 0; i < 4; i++) {
+    const stripe = new THREE.Mesh(
+      new THREE.PlaneGeometry(w * 0.95, 0.3),
+      new THREE.MeshStandardMaterial({ color: 0x5a9a42, roughness: 1 })
+    );
+    stripe.rotation.x = -Math.PI / 2;
+    stripe.position.set(0, 0.16, -d / 2 + (i + 1) * d / 5);
+    g.add(stripe);
+  }
+  // A thin edge border (rubber / plastic trim)
+  const edgeMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 1 });
+  for (const sz of [-d / 2, d / 2]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(w, 0.1, 0.15), edgeMat);
+    edge.position.set(0, 0.2, sz);
+    g.add(edge);
+  }
+  for (const sx of [-w / 2, w / 2]) {
+    const edge = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.1, d), edgeMat);
+    edge.position.set(sx, 0.2, 0);
+    g.add(edge);
+  }
+  g.position.set(cx, 0, cz);
+  return g;
+}
+
+function makeGardenBed(cx, cz, w, d) {
+  const g = new THREE.Group();
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0x5a3a22, roughness: 1 });
+  const dirtMat = new THREE.MeshStandardMaterial({ color: 0x3a2818, roughness: 1 });
+  const box = new THREE.Mesh(new THREE.BoxGeometry(w, 1.2, d), boxMat);
+  box.position.set(0, 0.6, 0);
+  box.castShadow = true;
+  g.add(box);
+  // Wood-plank trim ridge on top
+  for (const sx of [-w / 2, w / 2]) {
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.2, d + 0.2), boxMat);
+    trim.position.set(sx, 1.3, 0);
+    g.add(trim);
+  }
+  for (const sz of [-d / 2, d / 2]) {
+    const trim = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 0.2, 0.15), boxMat);
+    trim.position.set(0, 1.3, sz);
+    g.add(trim);
+  }
+  const dirt = new THREE.Mesh(new THREE.BoxGeometry(w - 0.3, 0.1, d - 0.3), dirtMat);
+  dirt.position.set(0, 1.25, 0);
+  g.add(dirt);
+  // Shrubs and small plants spaced along the longer axis
+  const longAxis = w > d ? 'x' : 'z';
+  const count = Math.max(2, Math.floor((longAxis === 'x' ? w : d) / 2.5));
+  const colors = [0x3a6a2a, 0x4a7a2e, 0x2e6228, 0x6a8a32];
+  for (let i = 0; i < count; i++) {
+    const t = (i + 0.5) / count;
+    const size = 0.7 + Math.random() * 0.5;
+    const shrub = new THREE.Mesh(
+      new THREE.SphereGeometry(size, 10, 8),
+      new THREE.MeshStandardMaterial({ color: colors[i % colors.length], roughness: 1 })
+    );
+    if (longAxis === 'x') shrub.position.set(-w / 2 + t * w, 1.9, (Math.random() - 0.5) * d * 0.5);
+    else shrub.position.set((Math.random() - 0.5) * w * 0.5, 1.9, -d / 2 + t * d);
+    shrub.castShadow = true;
+    g.add(shrub);
+    // Some bright flowers poking through
+    if (i % 3 === 0) {
+      const flower = new THREE.Mesh(
+        new THREE.SphereGeometry(0.25, 8, 6),
+        new THREE.MeshStandardMaterial({ color: [0xe84a4a, 0xf0c040, 0xe48ad8][i % 3], emissive: 0x202020 })
+      );
+      flower.position.copy(shrub.position);
+      flower.position.y += 0.6;
+      g.add(flower);
+    }
+  }
+  g.position.set(cx, 0.1, cz);
+  return g;
+}
+
+function makeWallTV(cx, cy, cz, rot = 0, width = 5.2) {
+  const g = new THREE.Group();
+  const frameMat  = new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.4, metalness: 0.6 });
+  const screenMat = new THREE.MeshStandardMaterial({
+    color: 0x2a4a7a, emissive: 0x1a3a6a, emissiveIntensity: 0.55, roughness: 0.25
+  });
+  const h = width * 9 / 16;
+  const frame = new THREE.Mesh(new THREE.BoxGeometry(width + 0.25, h + 0.25, 0.28), frameMat);
+  g.add(frame);
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(width - 0.15, h - 0.15, 0.12), screenMat);
+  screen.position.set(0, 0, 0.2);
+  g.add(screen);
+  // Fake "content" — bright stripes inside the screen
+  for (let i = 0; i < 3; i++) {
+    const band = new THREE.Mesh(
+      new THREE.PlaneGeometry(width - 0.4, 0.4),
+      new THREE.MeshStandardMaterial({
+        color: [0xe84a4a, 0xffffff, 0x3a9aef][i],
+        emissive: [0xe84a4a, 0xffffff, 0x3a9aef][i],
+        emissiveIntensity: 0.6
+      })
+    );
+    band.position.set(0, -h / 2 + 0.6 + i * 0.5, 0.27);
+    g.add(band);
+  }
+  // Wall mount
+  const mount = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.8, 0.2), frameMat);
+  mount.position.set(0, 0, -0.2);
+  g.add(mount);
+  g.position.set(cx, cy, cz);
+  g.rotation.y = rot;
+  return g;
+}
+
+function makeOutdoorRug(cx, cz, w, d, color = 0x8a5a34) {
+  const rug = new THREE.Mesh(
+    new THREE.PlaneGeometry(w, d),
+    new THREE.MeshStandardMaterial({ color, roughness: 1 })
+  );
+  rug.rotation.x = -Math.PI / 2;
+  rug.position.set(cx, 0.12, cz);
+  rug.receiveShadow = true;
+  return rug;
+}
+
+/* ---- Placements: left/right bottom containers ---- */
+// LEFT-BACK bottom side container (x=-36, z=-20, interior spans x=-40..-32, z=-40..0)
+// Opening faces +x (courtyard). Two bunk beds stand against the back wall.
+scene.add(makeBunkBed(-38.2, -30));
+scene.add(makeBunkBed(-38.2, -10));
+
+// LEFT-FRONT bottom side container (x=-36, z=+20, interior spans x=-40..-32, z=0..40)
+// Kitchen against the back wall.
+const kitchen = makeKitchen(0, 0, Math.PI / 2);
+kitchen.position.set(-38.5, 0.05, 15);
+scene.add(kitchen);
+// Small dining table and chairs next to the kitchen
+scene.add(makePicnicTable(-37, 32, Math.PI / 2));
+
+// RIGHT-BACK bottom side container (x=+36, z=-20, interior spans x=+32..+40, z=-40..0)
+// Bathroom suite against the back wall.
+const bathroom = makeBathroom(0, 0, -Math.PI / 2);
+bathroom.position.set(38.2, 0.05, -20);
+scene.add(bathroom);
+
+// RIGHT-FRONT bottom side container (x=+36, z=+20, interior spans x=+32..+40, z=0..40)
+// Lounge area (sofa + coffee table).
+const sofa = makeSofa(0, 0, -Math.PI / 2);
+sofa.position.set(38.2, 0.05, 14);
+scene.add(sofa);
+const ct = makeCoffeeTable(35.5, 14);
+scene.add(ct);
+// Second sofa / reading corner
+const sofa2 = makeSofa(0, 0, -Math.PI / 2);
+sofa2.position.set(38.2, 0.05, 32);
+scene.add(sofa2);
+
+// Back wall doorway — glimpse of the future interior staircase
+// Door is at (world) x=10, z=-40. Stairs rise along +x, deeper into the
+// 40-ft container, hinting at future multi-level access to the top deck.
+const interiorStair = makeInteriorStairs(10, -42, -Math.PI / 2);
+scene.add(interiorStair);
+
+/* ---------- Courtyard zone ----------
+   Between the ramp sides and the container walls. The ramp runs down the
+   middle (x=-7 to +7), leaving two ~25 ft wide bays on each side.
+*/
+// Fire pit and benches on the left-side courtyard
+scene.add(makeFirePit(-18, 28));
+scene.add(makeBench(-20, 22, 0));
+scene.add(makeBench(-13, 33, -Math.PI / 2));
+scene.add(makeBench(-26, 33, Math.PI / 2));
+
+// Picnic area on the right-side courtyard
+scene.add(makePicnicTable(20, 30, 0));
+scene.add(makeBench(22, 22, 0));
+
+// Planters scattered as accents
+scene.add(makePlanter(-25, -5));
+scene.add(makePlanter(25, -5));
+scene.add(makePlanter(-25, 45));
+scene.add(makePlanter(25, 45));
+scene.add(makePlanter(-15, -35));
+scene.add(makePlanter(15, -35));
+
+// String lights strung between the container tops for the courtyard vibe
+scene.add(makeStringLights(-32, -30, 32, -30, 19));
+scene.add(makeStringLights(-32, 10, 32, 10, 19));
+scene.add(makeStringLights(-32, 30, 32, 30, 19));
+
+/* ---------- v8: fake-grass lounge zones flanking the riding lane ----------
+   The concrete slab is left intact (whole thing is still on concrete), but
+   turf patches + garden-bed barriers make the sides read as courtyard.
+*/
+// LEFT side fake-grass zones (between the left containers and the riding lane)
+scene.add(makeFakeGrassPatch(-22, -32, 18, 10));   // back-left chill zone
+scene.add(makeFakeGrassPatch(-22, -5,  18, 28));   // left mid lounge
+scene.add(makeFakeGrassPatch(-22, 28,  18, 14));   // left front lounge
+
+// RIGHT side fake-grass zones
+scene.add(makeFakeGrassPatch(22, -32, 18, 10));
+scene.add(makeFakeGrassPatch(22, -5,  18, 28));
+scene.add(makeFakeGrassPatch(22, 28,  18, 14));
+
+// Garden-bed planter strips running along both sides of the riding lane.
+// Broken into sections so you can cross between the riding lane and the
+// lounge zones without hopping over a wall.
+// Left barrier (at x = -13)
+scene.add(makeGardenBed(-13, -15, 1.4, 20));
+scene.add(makeGardenBed(-13,  10, 1.4, 20));
+scene.add(makeGardenBed(-13,  40, 1.4, 16));
+// Right barrier (at x = +13)
+scene.add(makeGardenBed( 13, -15, 1.4, 20));
+scene.add(makeGardenBed( 13,  10, 1.4, 20));
+scene.add(makeGardenBed( 13,  40, 1.4, 16));
+
+/* ---------- v8: back-corner chill zones (wall-mounted TVs + outdoor couches) ----------
+   TVs mount on the back wall (at z=-39.5, facing +z into the courtyard),
+   with outdoor couches and coffee tables positioned to face them.
+*/
+// BACK-LEFT chill corner (avoids the x=-10 back-wall doorway)
+scene.add(makeWallTV(-24, 6, -39.6, 0, 5.5));
+const chillSofaL = makeSofa(-24, -33, Math.PI);
+scene.add(chillSofaL);
+scene.add(makeCoffeeTable(-24, -35.5));
+scene.add(makeOutdoorRug(-24, -33, 10, 7, 0x6a4a2a));
+// Armchair at one end
+const armchairL = makeSofa(-30, -30, -Math.PI / 2);
+armchairL.scale.set(0.45, 1, 1);
+scene.add(armchairL);
+
+// BACK-RIGHT chill corner
+scene.add(makeWallTV(24, 6, -39.6, 0, 5.5));
+const chillSofaR = makeSofa(24, -33, Math.PI);
+scene.add(chillSofaR);
+scene.add(makeCoffeeTable(24, -35.5));
+scene.add(makeOutdoorRug(24, -33, 10, 7, 0x6a4a2a));
+const armchairR = makeSofa(30, -30, Math.PI / 2);
+armchairR.scale.set(0.45, 1, 1);
+scene.add(armchairR);
+
+/* ---------- Side props ---------- */
+function makeTrailer(x, z, rot = 0, color = 0xc0c0c0) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(20, 7.5, 7),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.35 })
+  );
+  body.position.y = 4.75;
+  body.castShadow = true;
+  g.add(body);
+  for (const sx of [-7, 0, 7]) {
+    const wheel = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.1, 1.1, 1, 14),
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1a })
+    );
+    wheel.rotation.z = Math.PI / 2;
+    wheel.position.set(sx, 1.1, -3.3);
+    g.add(wheel);
+    const w2 = wheel.clone();
+    w2.position.z = 3.3;
+    g.add(w2);
+  }
+  g.position.set(x, 0, z);
+  g.rotation.y = rot;
+  return g;
+}
+scene.add(makeTrailer(-80, 105, Math.PI / 7, 0xdddddd));
+scene.add(makeTrailer(85, 125, -Math.PI / 6, 0x3a5a8a));
+
+/* Side storage containers */
+const storageA = makeContainer(0x6a3a3a);
+storageA.position.set(-72, CH / 2, -62);
+storageA.rotation.y = -Math.PI / 10;
+scene.add(storageA);
+const storageB = makeContainer(0x3a5a3a);
+storageB.position.set(-72, CH * 1.5, -62);
+storageB.rotation.y = -Math.PI / 10;
+scene.add(storageB);
+
+/* Dirt access road */
+const road = new THREE.Mesh(
+  new THREE.PlaneGeometry(14, 260),
+  new THREE.MeshStandardMaterial({ color: 0x9a8770, roughness: 1 })
+);
+road.rotation.x = -Math.PI / 2;
+road.position.set(100, 0.06, 0);
+road.receiveShadow = true;
+scene.add(road);
+
+/* ---------- Custom orbit controls ---------- */
+const target = DEFAULT_TARGET.clone();
+const spherical = new THREE.Spherical();
+function syncSpherical() {
+  const offset = new THREE.Vector3().subVectors(camera.position, target);
+  spherical.setFromVector3(offset);
+}
+syncSpherical();
+function updateCamera() {
+  const v = new THREE.Vector3().setFromSpherical(spherical);
+  camera.position.copy(new THREE.Vector3().addVectors(target, v));
+  camera.lookAt(target);
+}
+updateCamera();
+
+let isOrbit = false, isPan = false, lx = 0, ly = 0;
+renderer.domElement.addEventListener('mousedown', e => {
+  if (e.button === 2) isPan = true; else isOrbit = true;
+  lx = e.clientX; ly = e.clientY;
+});
+window.addEventListener('mouseup', () => { isOrbit = false; isPan = false; });
+window.addEventListener('mousemove', e => {
+  const dx = e.clientX - lx, dy = e.clientY - ly;
+  lx = e.clientX; ly = e.clientY;
+  if (isOrbit) {
+    spherical.theta -= dx * 0.005;
+    spherical.phi = Math.max(0.08, Math.min(Math.PI - 0.08, spherical.phi - dy * 0.005));
+    updateCamera();
+  } else if (isPan) {
+    const right = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(camera.matrix, 1);
+    const speed = spherical.radius * 0.0015;
+    target.add(right.multiplyScalar(-dx * speed)).add(up.multiplyScalar(dy * speed));
+    updateCamera();
+  }
+});
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+renderer.domElement.addEventListener('wheel', e => {
+  e.preventDefault();
+  spherical.radius = Math.max(40, Math.min(800, spherical.radius * (1 + e.deltaY * 0.001)));
+  updateCamera();
+}, { passive: false });
+
+let touchState = null;
+renderer.domElement.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    touchState = { mode: 'orbit', x: e.touches[0].clientX, y: e.touches[0].clientY };
+  } else if (e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    touchState = { mode: 'pinch', dist: Math.hypot(dx, dy) };
+  }
+});
+renderer.domElement.addEventListener('touchmove', e => {
+  e.preventDefault();
+  if (!touchState) return;
+  if (touchState.mode === 'orbit' && e.touches.length === 1) {
+    const dx = e.touches[0].clientX - touchState.x;
+    const dy = e.touches[0].clientY - touchState.y;
+    touchState.x = e.touches[0].clientX; touchState.y = e.touches[0].clientY;
+    spherical.theta -= dx * 0.006;
+    spherical.phi = Math.max(0.08, Math.min(Math.PI - 0.08, spherical.phi - dy * 0.006));
+    updateCamera();
+  } else if (touchState.mode === 'pinch' && e.touches.length === 2) {
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.hypot(dx, dy);
+    spherical.radius = Math.max(40, Math.min(800, spherical.radius * (touchState.dist / dist)));
+    touchState.dist = dist;
+    updateCamera();
+  }
+}, { passive: false });
+renderer.domElement.addEventListener('touchend', () => { touchState = null; });
+
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+function setView(tgt, pos) {
+  target.copy(tgt);
+  camera.position.copy(pos);
+  syncSpherical();
+  updateCamera();
+}
+document.getElementById('btn-reset').onclick = () => setView(DEFAULT_TARGET, DEFAULT_CAM);
+document.getElementById('btn-top').onclick = () => setView(new THREE.Vector3(0, 0, 10), new THREE.Vector3(0, 230, 0.01));
+document.getElementById('btn-side').onclick = () => setView(new THREE.Vector3(0, 18, 10), new THREE.Vector3(200, 42, 10));
+document.getElementById('btn-rider').onclick = () => setView(new THREE.Vector3(0, 4, 40), new THREE.Vector3(0, 40, -32));
+document.getElementById('btn-back').onclick = () => setView(new THREE.Vector3(0, 20, 0), new THREE.Vector3(0, 55, -140));
+
+/* =========================================================
+   WOODEN SPECTATOR DECK (v9)
+   Mezzanine at y = 19 ft — top of the SECOND container,
+   flush with the tops of the side-wall containers. Reads
+   as a floor continuous with the side-wall container roofs.
+   Spans from the back wall (z = -40) forward to the middle
+   string of lights (z = +10). A compact 20 × 20 ft
+   head-clearance hole sits where the rider's head comes up
+   through the deck plane as they descend the roll-in.
+
+   Footprint: x ∈ [-32, 32], z ∈ [-40, 20]   (64 × 60 ft)
+              Front edge lands exactly at the midline of the
+              front side-wall containers (centers at z=+20).
+   Cutout:    x ∈ [-10, 10], z ∈ [-22, -2]   (20 × 20 ft)
+              Ramp crosses deck plane at z ≈ -13.1 — the hole
+              is pushed back so the rider falls cleanly through.
+   No support columns — deck cantilevers off the side and
+   back walls.
+   ========================================================= */
+const deckY = 19;
+const deckThk = 0.4;
+const deckMat = new THREE.MeshStandardMaterial({
+  color: 0x8a5a2e, roughness: 0.92, metalness: 0.0
+});
+const deckDarkMat = new THREE.MeshStandardMaterial({
+  color: 0x6a4320, roughness: 0.95
+});
+const deckGroup = new THREE.Group();
+
+// Three slabs forming the C-shape around the cutout
+function addDeckSlab(x1, x2, z1, z2) {
+  const w = x2 - x1, d = z2 - z1;
+  const slab = new THREE.Mesh(
+    new THREE.BoxGeometry(w, deckThk, d),
+    deckMat
+  );
+  slab.position.set((x1 + x2) / 2, deckY, (z1 + z2) / 2);
+  slab.castShadow = true;
+  slab.receiveShadow = true;
+  deckGroup.add(slab);
+
+  // Plank seam lines on top (running along z — planks oriented front-to-back)
+  const plankW = 0.6;
+  const seamMat = deckDarkMat;
+  for (let x = x1 + plankW; x < x2 - 0.001; x += plankW) {
+    const seam = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 0.02, d - 0.05),
+      seamMat
+    );
+    seam.position.set(x, deckY + deckThk / 2 + 0.015, (z1 + z2) / 2);
+    deckGroup.add(seam);
+  }
+  // Skirt trim under the outer edge (a darker fascia board)
+  return slab;
+}
+
+// Four slabs tiling the deck footprint minus the head-clearance hole
+addDeckSlab(-32, -10, -40,  20);   // left wing
+addDeckSlab( 10,  32, -40,  20);   // right wing
+addDeckSlab(-10,  10, -40, -22);   // back strip between wings
+addDeckSlab(-10,  10,  -2,  20);   // front strip — 22 ft walkway in front of hole
+
+// Fascia boards along exposed edges
+function addFascia(x1, z1, x2, z2) {
+  const dx = x2 - x1, dz = z2 - z1;
+  const len = Math.hypot(dx, dz);
+  const fascia = new THREE.Mesh(
+    new THREE.BoxGeometry(len, deckThk * 1.2, 0.2),
+    deckDarkMat
+  );
+  fascia.position.set((x1 + x2) / 2, deckY - 0.02, (z1 + z2) / 2);
+  const angle = Math.atan2(dz, dx);
+  fascia.rotation.y = -angle;
+  fascia.castShadow = true;
+  deckGroup.add(fascia);
+}
+// Front (courtyard-facing) edge
+addFascia(-32,  20,  32,  20);
+// Hole perimeter fascia (four sides)
+addFascia(-10, -22,  10, -22);   // back of hole
+addFascia(-10,  -2,  10,  -2);   // front of hole
+addFascia(-10, -22, -10,  -2);   // left of hole
+addFascia( 10, -22,  10,  -2);   // right of hole
+
+// Railings — galvanized steel pipe on open edges
+function addDeckRail(x1, z1, x2, z2, postCount) {
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xb8bdc2, metalness: 0.7, roughness: 0.4
+  });
+  const dx = x2 - x1, dz = z2 - z1;
+  const len = Math.hypot(dx, dz);
+  const yBase = deckY + deckThk / 2;
+  const topRail = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.1, len, 8), mat
+  );
+  topRail.position.set((x1 + x2) / 2, yBase + 3.5, (z1 + z2) / 2);
+  topRail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, 0, dz).normalize());
+  deckGroup.add(topRail);
+  const midRail = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, len, 8), mat
+  );
+  midRail.position.set((x1 + x2) / 2, yBase + 1.8, (z1 + z2) / 2);
+  midRail.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, 0, dz).normalize());
+  deckGroup.add(midRail);
+  for (let i = 0; i <= postCount; i++) {
+    const t = i / postCount;
+    const px = x1 + dx * t, pz = z1 + dz * t;
+    const post = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.1, 0.1, 3.5, 8), mat
+    );
+    post.position.set(px, yBase + 1.75, pz);
+    post.castShadow = true;
+    deckGroup.add(post);
+  }
+}
+// Front courtyard-facing rail
+addDeckRail(-32,  20,  32,  20, 14);
+// Hole perimeter rails
+addDeckRail(-10, -22,  10, -22, 5);
+addDeckRail(-10,  -2,  10,  -2, 5);
+addDeckRail(-10, -22, -10,  -2, 5);
+addDeckRail( 10, -22,  10,  -2, 5);
+
+// No support columns — deck cantilevers off the side walls and back wall.
+
+scene.add(deckGroup);
+
+// Toggle for the spectator deck
+let deckOn = true;
+const btnDeck = document.getElementById('btn-deck');
+if (btnDeck) {
+  btnDeck.onclick = () => {
+    deckOn = !deckOn;
+    deckGroup.visible = deckOn;
+    deckAmenities.visible = deckOn;
+    btnDeck.textContent = deckOn ? 'Hide deck' : 'Show deck';
+  };
+}
+
+/* =========================================================
+   DECK AMENITIES — skate park, tanning beds, chill zones
+   All placed on top of the deck at y = deckY + deckThk/2 = 19.2
+   Safe zones (AVOID the head-clearance hole at
+   x ∈ [-10,10], z ∈ [-22,-2]):
+     LEFT WING   x ∈ [-32,-10], z ∈ [-40, 20]  (22 × 60)
+     RIGHT WING  x ∈ [ 10, 32], z ∈ [-40, 20]  (22 × 60)
+     BACK STRIP  x ∈ [-10, 10], z ∈ [-40,-22]  (20 × 18)
+     FRONT STRIP x ∈ [-10, 10], z ∈ [ -2, 20]  (20 × 22)
+   ========================================================= */
+const deckAmenities = new THREE.Group();
+const DECK_TOP = deckY + deckThk / 2;  // = 19.2
+
+const rampWoodMat  = new THREE.MeshStandardMaterial({ color: 0x6e4a2a, roughness: 0.9 });
+const rampSurfMat  = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.8, side: THREE.DoubleSide });
+const copingMat    = new THREE.MeshStandardMaterial({ color: 0xd0d0d2, roughness: 0.35, metalness: 0.85 });
+const railMetalMat = new THREE.MeshStandardMaterial({ color: 0xb8b8bc, roughness: 0.3,  metalness: 0.9 });
+const loungerFrame = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.45, metalness: 0.4 });
+const loungerCushion = new THREE.MeshStandardMaterial({ color: 0xf3e9d2, roughness: 0.95 });
+const umbrellaMat  = new THREE.MeshStandardMaterial({ color: 0xcc4a3a, roughness: 0.92, side: THREE.DoubleSide });
+const poleMat      = new THREE.MeshStandardMaterial({ color: 0x2e2e32, roughness: 0.6,  metalness: 0.5 });
+const boxRampMat   = new THREE.MeshStandardMaterial({ color: 0x4a4a4e, roughness: 0.85 });
+
+// ---------- MINI QUARTER PIPE ----------
+// Rider approaches from +Z, rolls up the concave curve to a vertical top at -Z side.
+function makeQuarterPipe(cx, cz, rotY = 0, w = 8, h = 4) {
+  const g = new THREE.Group();
+  const r = h;
+  // Quarter-cylinder shell = ride surface
+  const shell = new THREE.Mesh(
+    new THREE.CylinderGeometry(r, r, w, 24, 1, true, Math.PI / 2, Math.PI / 2),
+    rampSurfMat
+  );
+  shell.rotation.z = Math.PI / 2;   // cylinder axis along X
+  shell.position.set(0, r, 0);      // lift so base of curve sits at y=0
+  shell.castShadow = true;
+  g.add(shell);
+  // End caps (triangle cheeks) — just filled quarter-disks
+  for (const sx of [-1, 1]) {
+    const diskShape = new THREE.Shape();
+    diskShape.moveTo(0, 0);
+    diskShape.lineTo(0, r);
+    diskShape.absarc(0, r, r, -Math.PI / 2, -Math.PI, true);
+    diskShape.lineTo(0, 0);
+    const cheek = new THREE.Mesh(new THREE.ShapeGeometry(diskShape), rampWoodMat);
+    cheek.rotation.y = Math.PI / 2;
+    cheek.position.set(sx * w / 2, 0, 0);
+    if (sx < 0) cheek.rotation.y = -Math.PI / 2;
+    g.add(cheek);
+  }
+  // Base wood box supporting the shell (hides the gap at ground level)
+  const base = new THREE.Mesh(new THREE.BoxGeometry(w, 0.3, r * 2), rampWoodMat);
+  base.position.set(0, 0.15, -r / 2 + 0.01);
+  g.add(base);
+  // Metal coping at the top lip
+  const coping = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.13, 0.13, w + 0.2, 16),
+    copingMat
+  );
+  coping.rotation.z = Math.PI / 2;
+  coping.position.set(0, r + 0.05, -r);
+  g.add(coping);
+  // Flat deck behind the coping for standing on top
+  const topDeck = new THREE.Mesh(new THREE.BoxGeometry(w, 0.2, 2.5), rampWoodMat);
+  topDeck.position.set(0, r - 0.1, -r - 1.25);
+  g.add(topDeck);
+  g.rotation.y = rotY;
+  g.position.set(cx, DECK_TOP, cz);
+  return g;
+}
+
+// ---------- LAUNCH KICKER (triangular ramp) ----------
+function makeKicker(cx, cz, rotY = 0, w = 6, h = 3, l = 5) {
+  const g = new THREE.Group();
+  // Triangular prism using custom BufferGeometry
+  const v = new Float32Array([
+    -w/2, 0, 0,     w/2, 0, 0,       // 0,1 front-bottom (entry)
+    -w/2, 0, -l,    w/2, 0, -l,      // 2,3 back-bottom
+    -w/2, h, -l,    w/2, h, -l       // 4,5 top-back (launch lip)
+  ]);
+  const idx = [
+    0, 1, 3,   0, 3, 2,        // bottom
+    0, 5, 1,   0, 4, 5,        // ride face (front-bottom → top-back)
+    2, 3, 5,   2, 5, 4,        // back (vertical)
+    0, 2, 4,                   // left cheek
+    1, 5, 3                    // right cheek
+  ];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(v, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const body = new THREE.Mesh(geo, rampWoodMat);
+  body.castShadow = true;
+  g.add(body);
+  // Dark ride surface (angled slab flush with the hypotenuse)
+  const hyp = Math.sqrt(l*l + h*h);
+  const surf = new THREE.Mesh(new THREE.BoxGeometry(w - 0.1, 0.08, hyp), rampSurfMat);
+  const ang = Math.atan2(h, l);
+  surf.rotation.x = ang;    // tilts up toward -Z (back)
+  surf.position.set(0, h/2 + 0.04 * Math.cos(ang), -l/2 - 0.04 * Math.sin(ang));
+  g.add(surf);
+  // Coping at the launch lip
+  const lip = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, w, 12), copingMat);
+  lip.rotation.z = Math.PI / 2;
+  lip.position.set(0, h + 0.04, -l);
+  g.add(lip);
+  g.rotation.y = rotY;
+  g.position.set(cx, DECK_TOP, cz);
+  return g;
+}
+
+// ---------- MANUAL PAD / BOX ----------
+function makeManualPad(cx, cz, rotY = 0, w = 4, h = 1.5, l = 8) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), boxRampMat);
+  body.position.set(0, h / 2, 0);
+  body.castShadow = true;
+  g.add(body);
+  // Ride surface (slightly lighter top)
+  const top = new THREE.Mesh(new THREE.BoxGeometry(w - 0.05, 0.1, l - 0.05),
+    new THREE.MeshStandardMaterial({ color: 0x6a6a6e, roughness: 0.85 }));
+  top.position.set(0, h + 0.05, 0);
+  g.add(top);
+  // Coping edges along the long sides
+  for (const sx of [-1, 1]) {
+    const cop = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, l, 10), copingMat);
+    cop.rotation.x = Math.PI / 2;
+    cop.position.set(sx * w / 2, h + 0.05, 0);
+    g.add(cop);
+  }
+  g.rotation.y = rotY;
+  g.position.set(cx, DECK_TOP, cz);
+  return g;
+}
+
+// ---------- GRIND RAIL (flat bar on two posts) ----------
+function makeGrindRail(x1, z1, x2, z2, h = 1) {
+  const g = new THREE.Group();
+  const dx = x2 - x1, dz = z2 - z1;
+  const L = Math.sqrt(dx*dx + dz*dz);
+  const bar = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, L, 14),
+    railMetalMat
+  );
+  bar.rotation.z = Math.PI / 2;
+  bar.rotation.y = -Math.atan2(dz, dx);
+  bar.position.set((x1 + x2) / 2, h, (z1 + z2) / 2);
+  g.add(bar);
+  // Posts at each end
+  for (const t of [0, 1]) {
+    const px = x1 + t * dx, pz = z1 + t * dz;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, h, 10), railMetalMat);
+    post.position.set(px, h / 2, pz);
+    g.add(post);
+    // Base plate
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.6), railMetalMat);
+    plate.position.set(px, 0.04, pz);
+    g.add(plate);
+  }
+  g.position.y += DECK_TOP;
+  return g;
+}
+
+// ---------- SUN LOUNGER (tanning bed) ----------
+function makeSunLounger(cx, cz, rotY = 0) {
+  const g = new THREE.Group();
+  // Frame legs (4 corner feet + side rails)
+  const len = 6, wd = 2.3, legH = 0.9;
+  for (const sx of [-1, 1]) {
+    const railSide = new THREE.Mesh(
+      new THREE.BoxGeometry(0.15, 0.15, len),
+      loungerFrame
+    );
+    railSide.position.set(sx * (wd/2 - 0.1), legH, 0);
+    g.add(railSide);
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.15, legH, 0.15), loungerFrame);
+      leg.position.set(sx * (wd/2 - 0.1), legH / 2, sz * (len/2 - 0.3));
+      g.add(leg);
+    }
+  }
+  // Flat cushion (bottom 2/3)
+  const flatCushion = new THREE.Mesh(
+    new THREE.BoxGeometry(wd - 0.3, 0.25, len * 0.6),
+    loungerCushion
+  );
+  flatCushion.position.set(0, legH + 0.2, len * 0.2);
+  g.add(flatCushion);
+  // Reclined back cushion (upper 1/3, angled ~25°)
+  const backLen = len * 0.4;
+  const backCushion = new THREE.Mesh(
+    new THREE.BoxGeometry(wd - 0.3, 0.25, backLen),
+    loungerCushion
+  );
+  const recline = 25 * Math.PI / 180;
+  backCushion.rotation.x = recline;
+  backCushion.position.set(
+    0,
+    legH + 0.2 + Math.sin(recline) * backLen / 2,
+    -len * 0.1 - Math.cos(recline) * backLen / 2
+  );
+  g.add(backCushion);
+  // Towel (decorative stripe)
+  const towel = new THREE.Mesh(
+    new THREE.BoxGeometry(wd - 0.5, 0.04, 2.2),
+    new THREE.MeshStandardMaterial({ color: 0xe94e4e, roughness: 0.95 })
+  );
+  towel.position.set(0, legH + 0.35, len * 0.15);
+  g.add(towel);
+  g.rotation.y = rotY;
+  g.position.set(cx, DECK_TOP, cz);
+  return g;
+}
+
+// ---------- BEACH UMBRELLA ----------
+function makeUmbrella(cx, cz, rotY = 0) {
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.1, 8, 10),
+    poleMat
+  );
+  pole.position.set(0, 4, 0);
+  g.add(pole);
+  // Canopy = flattened cone (8-sided)
+  const canopy = new THREE.Mesh(
+    new THREE.ConeGeometry(4, 1.2, 8, 1, true),
+    umbrellaMat
+  );
+  canopy.position.set(0, 8.5, 0);
+  g.add(canopy);
+  // Finial on top
+  const finial = new THREE.Mesh(
+    new THREE.ConeGeometry(0.18, 0.6, 8),
+    poleMat
+  );
+  finial.position.set(0, 9.4, 0);
+  g.add(finial);
+  // Weighted base
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.7, 0.8, 0.3, 14),
+    poleMat
+  );
+  base.position.set(0, 0.15, 0);
+  g.add(base);
+  g.rotation.y = rotY;
+  g.position.set(cx, DECK_TOP, cz);
+  return g;
+}
+
+// ---------- SIDE TABLE (for loungers) ----------
+function makeSideTable(cx, cz) {
+  const g = new THREE.Group();
+  const topMat = new THREE.MeshStandardMaterial({ color: 0xd8d4cc, roughness: 0.7 });
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 0.9, 0.1, 20), topMat);
+  top.position.set(0, 1.4, 0);
+  g.add(top);
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 1.4, 10), poleMat);
+  stem.position.set(0, 0.7, 0);
+  g.add(stem);
+  const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.6, 0.12, 14), poleMat);
+  foot.position.set(0, 0.06, 0);
+  g.add(foot);
+  g.position.set(cx, DECK_TOP, cz);
+  return g;
+}
+
+// =============== PLACEMENT ===============
+
+// SKATE FEATURES ------------------------------------------
+// Mini quarter pipe on back strip, facing +Z (rider rolls in from the hole area)
+deckAmenities.add(makeQuarterPipe(0, -32, 0, 10, 4));
+
+// Launch kicker on right wing, pointing forward (+Z) toward the front
+deckAmenities.add(makeKicker(22, 0, Math.PI, 5, 2.5, 5));
+// Manual pad/box on right wing, between kicker and front
+deckAmenities.add(makeManualPad(22, 12, 0, 4, 1.2, 8));
+
+// Flat grind rail on left wing, running along Z
+deckAmenities.add(makeGrindRail(-22, -4, -22, 8, 1));
+// Angled hubba-style grind rail on left wing near front
+deckAmenities.add(makeGrindRail(-26, 13, -18, 17, 0.8));
+
+// TANNING / CHILL — FRONT STRIP (catches the sun off the front of the dome) --
+deckAmenities.add(makeSunLounger(-5, 13, 0));
+deckAmenities.add(makeSunLounger( 5, 13, 0));
+deckAmenities.add(makeSideTable(0, 13));
+deckAmenities.add(makeUmbrella(0, 16, 0));
+
+// CHILL CORNER — left wing back, near the quarter pipe
+const sofaA = makeSofa(-22, -30, Math.PI / 2);   // faces +X toward the ramps
+sofaA.position.y += DECK_TOP;
+deckAmenities.add(sofaA);
+const tableA = makeCoffeeTable(-19, -30);
+tableA.position.y += DECK_TOP;
+deckAmenities.add(tableA);
+deckAmenities.add(makeUmbrella(-22, -34, 0));
+
+// CHILL CORNER — right wing back
+const sofaB = makeSofa(22, -30, -Math.PI / 2);   // faces -X toward the ramps
+sofaB.position.y += DECK_TOP;
+deckAmenities.add(sofaB);
+const tableB = makeCoffeeTable(19, -30);
+tableB.position.y += DECK_TOP;
+deckAmenities.add(tableB);
+
+// Extra tanning beds on the right wing front (sunny side)
+deckAmenities.add(makeSunLounger(15, 15, -Math.PI / 2));   // face -X (toward center)
+deckAmenities.add(makeSunLounger(28, 15,  Math.PI / 2));   // face +X (toward wall)
+deckAmenities.add(makeUmbrella(22, 17, 0));
+
+// Couple of planters to break things up
+deckAmenities.add((() => { const p = makePlanter(-15, 18, 2.2); p.position.y += DECK_TOP; return p; })());
+deckAmenities.add((() => { const p = makePlanter( 15, -25, 2.2); p.position.y += DECK_TOP; return p; })());
+deckAmenities.add((() => { const p = makePlanter(-28, -15, 2.0); p.position.y += DECK_TOP; return p; })());
+
+scene.add(deckAmenities);
+
+/* =========================================================
+   DOME ROOF (experimental — v9 only)
+   Fabric shelter stretched between the tops of the side walls.
+   Classic "container canopy": steel arched ribs bolted onto
+   the top rails of two container rows, with translucent white
+   PVC membrane pulled taut between them.
+
+   Arch = half-ellipse in the X/Y plane, extruded along Z.
+     - Springs from side-wall tops at x = ±40, y = 19
+     - Peak at  x = 0, y = 56  (tall enough to clear the 38.3 ft
+       drop-in deck with a rider standing on it — ~12 ft of
+       head clearance above the deck).
+     - Ellipse semi-axes: a=40 (x), b=37 (y)  — steep arch
+     - Runs from z = -48 (back wall outer face) to z = +48
+       (past the 14 ft kicker at z=42). Back wall and drop-in
+       deck are fully enclosed under the dome.
+   ========================================================= */
+const domeGroup = new THREE.Group();
+
+const DOME_A = 40;               // horizontal semi-axis
+const DOME_B = 37;                // vertical semi-axis — steep arch
+const DOME_SPRING_Y = 19;         // springing line height
+const DOME_Z_MIN = -48;           // back wall outer face
+const DOME_Z_MAX = 48;
+const DOME_LENGTH = DOME_Z_MAX - DOME_Z_MIN;
+
+// Steel arched ribs every 8 ft
+const ribMat = new THREE.MeshStandardMaterial({
+  color: 0xc4c8cc, metalness: 0.85, roughness: 0.32
+});
+const ribRadius = 0.3;
+const ribThetaSegs = 40;
+const ribZs = [];
+for (let z = DOME_Z_MIN; z <= DOME_Z_MAX + 0.01; z += 8) ribZs.push(z);
+
+for (const z of ribZs) {
+  const pts = [];
+  for (let i = 0; i <= ribThetaSegs; i++) {
+    // Sweep theta from π to 0 so x goes from -A to +A along the arch top.
+    const theta = Math.PI - (i / ribThetaSegs) * Math.PI;
+    pts.push(new THREE.Vector3(
+      DOME_A * Math.cos(theta),
+      DOME_SPRING_Y + DOME_B * Math.sin(theta),
+      z
+    ));
+  }
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const rib = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, 64, ribRadius, 8, false),
+    ribMat
+  );
+  rib.castShadow = true;
+  domeGroup.add(rib);
+}
+
+// Longitudinal purlins tying the ribs together at several arc heights
+const purlinRadius = 0.15;
+const purlinThetas = [
+  Math.PI * 0.12, Math.PI * 0.26, Math.PI * 0.38,
+  Math.PI * 0.50, Math.PI * 0.62, Math.PI * 0.74, Math.PI * 0.88
+];
+for (const theta of purlinThetas) {
+  const px = DOME_A * Math.cos(Math.PI - theta);
+  const py = DOME_SPRING_Y + DOME_B * Math.sin(Math.PI - theta);
+  const purlin = new THREE.Mesh(
+    new THREE.CylinderGeometry(purlinRadius, purlinRadius, DOME_LENGTH, 8),
+    ribMat
+  );
+  purlin.rotation.x = Math.PI / 2;
+  purlin.position.set(px, py, (DOME_Z_MIN + DOME_Z_MAX) / 2);
+  purlin.castShadow = true;
+  domeGroup.add(purlin);
+}
+
+// Bottom chord tubes (springing line beams) running the full length at x = ±40, y = 19
+for (const bx of [-DOME_A, DOME_A]) {
+  const chord = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.4, DOME_LENGTH, 10),
+    ribMat
+  );
+  chord.rotation.x = Math.PI / 2;
+  chord.position.set(bx, DOME_SPRING_Y, (DOME_Z_MIN + DOME_Z_MAX) / 2);
+  chord.castShadow = true;
+  domeGroup.add(chord);
+}
+
+// Fabric membrane — translucent white PVC stretched over the ribs
+const membraneSegsTheta = 40;
+const membraneSegsZ = 48;
+const mPositions = [], mNormals = [], mUvs = [], mIndices = [];
+for (let iz = 0; iz <= membraneSegsZ; iz++) {
+  const z = DOME_Z_MIN + (iz / membraneSegsZ) * DOME_LENGTH;
+  for (let it = 0; it <= membraneSegsTheta; it++) {
+    const theta = Math.PI - (it / membraneSegsTheta) * Math.PI;
+    const x = DOME_A * Math.cos(theta);
+    const y = DOME_SPRING_Y + DOME_B * Math.sin(theta);
+    mPositions.push(x, y, z);
+    // Outward normal on ellipse surface (in xy plane)
+    let nx = Math.cos(theta) / DOME_A;
+    let ny = Math.sin(theta) / DOME_B;
+    const nl = Math.hypot(nx, ny);
+    mNormals.push(nx / nl, ny / nl, 0);
+    mUvs.push(it / membraneSegsTheta, iz / membraneSegsZ);
+  }
+}
+const stride = membraneSegsTheta + 1;
+for (let iz = 0; iz < membraneSegsZ; iz++) {
+  for (let it = 0; it < membraneSegsTheta; it++) {
+    const a = iz * stride + it;
+    const b = a + 1;
+    const c = a + stride;
+    const d = c + 1;
+    mIndices.push(a, c, b, b, c, d);
+  }
+}
+const membraneGeo = new THREE.BufferGeometry();
+membraneGeo.setAttribute('position', new THREE.Float32BufferAttribute(mPositions, 3));
+membraneGeo.setAttribute('normal', new THREE.Float32BufferAttribute(mNormals, 3));
+membraneGeo.setAttribute('uv', new THREE.Float32BufferAttribute(mUvs, 2));
+membraneGeo.setIndex(mIndices);
+// Opaque white mesh fabric (stretched PVC mesh — matte, bright white, solid from outside)
+const membraneMat = new THREE.MeshStandardMaterial({
+  color: 0xfafaf5,
+  roughness: 0.92,
+  metalness: 0.0,
+  side: THREE.DoubleSide
+});
+const membrane = new THREE.Mesh(membraneGeo, membraneMat);
+membrane.castShadow = true;
+membrane.receiveShadow = true;
+domeGroup.add(membrane);
+
+// Back-end gable — close the crescent gap between the back-wall top (y=38)
+// and the dome arch at z = DOME_Z_MIN.
+{
+  const BACK_WALL_TOP_Y = 38;
+  const sinCrit = (BACK_WALL_TOP_Y - DOME_SPRING_Y) / DOME_B;
+  if (sinCrit > 0 && sinCrit < 1) {
+    const thetaCrit = Math.asin(sinCrit);
+    const shape = new THREE.Shape();
+    // Start at the right intersection of arch with y=38
+    shape.moveTo(DOME_A * Math.cos(thetaCrit), BACK_WALL_TOP_Y);
+    // Walk the arch up over the peak to the left intersection
+    const segs = 40;
+    for (let i = 0; i <= segs; i++) {
+      const t = thetaCrit + (i / segs) * (Math.PI - 2 * thetaCrit);
+      shape.lineTo(DOME_A * Math.cos(t), DOME_SPRING_Y + DOME_B * Math.sin(t));
+    }
+    // Close across the top of the back wall
+    shape.lineTo(DOME_A * Math.cos(Math.PI - thetaCrit), BACK_WALL_TOP_Y);
+    shape.closePath();
+    const gableGeo = new THREE.ShapeGeometry(shape);
+    const gable = new THREE.Mesh(gableGeo, membraneMat);
+    gable.position.set(0, 0, DOME_Z_MIN);
+    gable.castShadow = true;
+    gable.receiveShadow = true;
+    domeGroup.add(gable);
+  }
+}
+
+// Anchor plates where ribs meet container tops
+const anchorMat = new THREE.MeshStandardMaterial({
+  color: 0x24252a, roughness: 0.6, metalness: 0.5
+});
+for (const z of ribZs) {
+  for (const x of [-DOME_A, DOME_A]) {
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.45, 1.4), anchorMat);
+    plate.position.set(x, DOME_SPRING_Y - 0.15, z);
+    plate.castShadow = true;
+    domeGroup.add(plate);
+  }
+}
+
+// Tension cables (crossed X-bracing) on the two gable bays for realism
+const cableMat = new THREE.MeshStandardMaterial({
+  color: 0x333a44, metalness: 0.7, roughness: 0.5
+});
+function makeCable(x1, y1, z1, x2, y2, z2) {
+  const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+  const len = Math.hypot(dx, dy, dz);
+  const cable = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, len, 6),
+    cableMat
+  );
+  cable.position.set((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
+  cable.quaternion.setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(dx, dy, dz).normalize()
+  );
+  return cable;
+}
+for (const [za, zb] of [[DOME_Z_MIN, DOME_Z_MIN + 8], [DOME_Z_MAX - 8, DOME_Z_MAX]]) {
+  // On the flat "side panel" under the arch at x = ±40 — X-brace between rib tops and anchor plates
+  for (const sx of [-DOME_A, DOME_A]) {
+    domeGroup.add(makeCable(sx, DOME_SPRING_Y, za, sx, DOME_SPRING_Y + 6, zb));
+    domeGroup.add(makeCable(sx, DOME_SPRING_Y + 6, za, sx, DOME_SPRING_Y, zb));
+  }
+}
+
+scene.add(domeGroup);
+
+// Toggle on/off so we can compare with and without the roof
+let domeOn = false;
+domeGroup.visible = false;
+const btnDome = document.getElementById('btn-dome');
+btnDome.textContent = 'Show dome';
+btnDome.onclick = () => {
+  domeOn = !domeOn;
+  domeGroup.visible = domeOn;
+  btnDome.textContent = domeOn ? 'Hide dome' : 'Show dome';
+};
+
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+animate();
+</script>
+</body>
+</html>
